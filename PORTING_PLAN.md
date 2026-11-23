@@ -108,18 +108,47 @@ Findings that shape Phase 2:
 
 ```
 source/
-  engine/              no GUI; yup_core + yup_events + libvorbis only
-    protocol/          NINJAM wire messages, framing, auth
-    net/               NinjamConnection (socket thread), PublicServerList (HTTP + JSON)
-    codec/             VorbisIntervalEncoder / VorbisIntervalDecoder
-    session/           JamSession: users, channels, interval clock, scheduled BPM/BPI changes
-    audio/             RemoteChannel playback, Metronome, JamMixer, lock-free queues
+  engine/              no GUI; yup_core + yup_events + yup_audio_basics + libvorbis only
+    protocol/          Messages: NINJAM wire messages, framing, auth hash
+    net/               PublicServerList (HTTPS + JSON)
+    codec/             VorbisEncoder, VorbisDecoder (streaming), StreamResampler
+    audio/             AudioEngine (audio thread: interval clock, remote slots,
+                       capture, metronome, mix, meters), SpscQueue
+    JamEngine          the engine thread: socket, session state, downloads,
+                       uploads, events and commands
   plugin/              JamProcessor (yup::AudioProcessor), state save/load
   ui/                  editor, server browser, transport bar, strips, meters, chat, theme
-tools/ninjam_cli/      headless client / test harness
+tools/ninjam_cli/      headless client and self-tests
+tools/test-server/     config for a local Cockos ninjamsrv
 docs/                  MkDocs site, published to gh-pages
 scripts/               packaging
 ```
+
+### Engine design as built (Phase 2)
+
+- **Two threads.** The *engine thread* (`JamEngine::Worker`, one per
+  connection) owns the socket, parses messages, keeps the user/channel state,
+  decodes received intervals, encodes ours and sends keepalives. The *audio
+  thread* runs `AudioEngine::process()`. The message thread only sends commands
+  (posted to the engine thread) and polls events.
+- **Remote playback.** Each remote channel gets one of 64 preallocated slots.
+  A received interval is decoded and resampled into a `RemoteInterval` buffer
+  as its bytes arrive; after 8 KB (NINJAM's prebuffer) it is queued on the
+  slot's SPSC queue, and the audio thread switches to it at its next interval
+  start. A silent interval (zero GUID) queues `nullptr`. Played intervals go
+  back to the engine thread through a "retired" queue to be freed there.
+  Slots are released with a handshake (active, releasing, free) so the audio
+  thread never sees a buffer disappear.
+- **Upload.** The audio thread copies local input into fixed 256-frame chunks
+  on an SPSC queue, with a marker at each interval start. The engine thread
+  closes the previous Ogg stream, starts a new one with a random GUID (or sends
+  a silent interval when not transmitting) and streams pages in messages of at
+  most 8 KB. Devices above 48 kHz are resampled to 48 kHz before encoding.
+- **Tempo.** Server BPM/BPI changes reach the audio thread as one atomic value
+  and apply at the next interval start; the first one starts the clock.
+- **Resampling** uses YUP's Lagrange interpolator, on the engine thread.
+- **Licence agreements** are surfaced as an event; the engine waits for
+  `acceptLicence()`. Nothing accepts a licence automatically.
 
 ## JamTaba features: what maps where
 
@@ -132,20 +161,20 @@ Qt-free replacement listed.
 |---|---|---|---|
 | `ninjam/client/ServerMessages`, `ClientMessages`, `Ninjam.h` | `QDataStream`, `QIODevice`, `QByteArray`, `QString` | `protocol/Messages.{h,cpp}`: little-endian reader/writer over `std::span<const std::byte>` / `std::vector<std::byte>`, UTF-8 `std::string`. Message ids and layouts from `mpb.h` | reimplemented |
 | auth (`SHA1(SHA1(user:pass)+challenge)`, anonymous login, licence agreement) | `QCryptographicHash` | `yup::SHA1` | reimplemented |
-| `ninjam/client/Service` (socket, keepalive, message dispatch, downloads keyed by GUID) | `QTcpSocket`, `QTimer`, signals | `net/NinjamConnection`: `yup::StreamingSocket` on its own `yup::Thread`, blocking reads with timeouts, keepalive by elapsed time. Events go to the message thread through a queue and `yup::AsyncUpdater`; listeners are plain C++ interfaces / `std::function` | reimplemented |
+| `ninjam/client/Service` (socket, keepalive, message dispatch, downloads keyed by GUID) | `QTcpSocket`, `QTimer`, signals | `JamEngine` engine thread: `yup::StreamingSocket` polled with short timeouts, keepalive by elapsed time. Events queue up for `pollEvents()` on the message thread; commands are posted to the engine thread | reimplemented |
 | `User`, `UserChannel`, `ServerInfo` | `QString`, `QMap`, `QList` | `session/` structs with `std::string`, `std::vector`, `std::unordered_map` | reimplemented |
-| `NinjamController` (interval position, BPM/BPI scheduled at interval start, prepared-to-transmit after 2 intervals, xmit scheduling, chat) | `QObject`, `QMutex`, `QThread` | `session/JamSession` (message thread) + `audio/IntervalClock` (audio thread). Changes reach the audio thread as values in a lock-free SPSC queue, applied at the interval boundary | reimplemented |
-| encoding thread (`NinjamController::EncodingThread`) | `QThread`, `QMutex` | `codec/EncoderThread`: audio thread pushes input blocks into a lock-free FIFO; a worker encodes and hands packets to `NinjamConnection` | reimplemented |
+| `NinjamController` (interval position, BPM/BPI scheduled at interval start, prepared-to-transmit after 2 intervals, xmit scheduling, chat) | `QObject`, `QMutex`, `QThread` | `JamEngine` (engine thread) + `AudioEngine` clock (audio thread). Tempo changes reach the audio thread as one atomic value, applied at the interval start; transmit changes also apply at the interval start | reimplemented |
+| encoding thread (`NinjamController::EncodingThread`) | `QThread`, `QMutex` | audio thread pushes 256-frame input chunks into an SPSC queue; the engine thread encodes and sends them | reimplemented |
 | `audio/vorbis/VorbisEncoder`, `VorbisDecoder` | `QByteArray` | `codec/` on YUP's bundled `libvorbis`/`libogg` (`vorbisenc` included), streaming chunk by chunk as intervals download. FourCC `OGGv` | reimplemented |
-| `audio/NinjamTrackNode` (decoded interval queue, resampling to device rate, play next interval at boundary) | `QList`, `QMutex` | `audio/RemoteChannel`: decoder thread fills preallocated interval buffers; audio thread swaps them at the boundary through atomics. Resampling with a windowed-sinc / Lagrange interpolator in plain C++ | reimplemented |
-| `audio/MetronomeTrackNode`, `MetronomeUtils` (beat/accent clicks, accent pattern) | `QFile` for samples | `audio/Metronome`: synthesized click and accent, preallocated per sample rate; accent every N beats or custom beats | reimplemented |
-| `audio/core/AudioPeak`, `AudioNode` gain/pan/mute/solo, `Filters` | | `audio/JamMixer`: per-strip gain, pan, mute, solo, peak + RMS meters published as atomics | reimplemented (low-cut / EQ filters dropped) |
-| `audio/core/LocalInputNode`, `LocalInputGroup` (local channels, mono/stereo, xmit) | | `audio/LocalChannel`: choose input pair or mono input, xmit toggle, monitor toggle, name | reimplemented |
+| `audio/NinjamTrackNode` (decoded interval queue, resampling to device rate, play next interval at boundary) | `QList`, `QMutex` | `RemoteSlot` + `RemoteInterval` in `AudioEngine`: the engine thread decodes into interval buffers; the audio thread switches to the queued one at the interval start. Resampling with YUP's Lagrange interpolator | reimplemented |
+| `audio/MetronomeTrackNode`, `MetronomeUtils` (beat/accent clicks, accent pattern) | `QFile` for samples | metronome in `AudioEngine`: synthesized click and accent, made in `prepare()`; accent on the first beat or every N beats | reimplemented |
+| `audio/core/AudioPeak`, `AudioNode` gain/pan/mute/solo, `Filters` | | `AudioEngine` mix: per-strip gain, pan, mute, solo, peak + RMS meters published as atomics | reimplemented (low-cut / EQ filters dropped) |
+| `audio/core/LocalInputNode`, `LocalInputGroup` (local channels, mono/stereo, xmit) | | `LocalChannel` in `AudioEngine`: input pair or mono input, xmit toggle, monitor toggle; name sent by `JamEngine` | reimplemented |
 | `loginserver/LoginService` (public server list from `http://ninbot.com/app/servers.php`, refreshed periodically) | `QNetworkAccessManager`, `QJsonDocument`, `QTimer` | `net/PublicServerList`: `yup::URL::createInputStream` on a background thread, `yup::JSON::parse`, refresh timer on the message thread. Same endpoint and field names (`name`, `port`, `bpm`, `bpi`, `user_count`, `user_max`, `users[]`) | reimplemented |
 | `persistence/Settings` (user name, last server, channel names, metronome, window layout) | `QSettings`, `QJson*` | processor state via `yup::DataTree` (saved by the host / the standalone state store); app-wide preferences in a small JSON file under `yup::File::userApplicationDataDirectory` | reimplemented, much smaller |
 | `persistence/UsersDataCache` (remembered per-user gain/pan/mute) | `QFile` | same JSON preferences file | reimplemented |
 | `log/Logging` | `qDebug` | `yup::Logger` | replaced |
-| chat voting (`!vote bpm N`, `!vote bpi N`) and admin commands | | `JamSession::voteBpm/voteBpi` send `MSG` chat lines; UI buttons beside the BPM/BPI fields | reimplemented |
+| chat voting (`!vote bpm N`, `!vote bpi N`) and admin commands | | `JamEngine::voteBpm/voteBpi` send `MSG` chat lines; UI buttons beside the BPM/BPI fields | reimplemented |
 | chord progressions in chat (`gui/chords`) | `QRegularExpression` | a small hand-written parser; shown in the chat panel and on the beat bar | reimplemented |
 | **`looper/*`** (Looper, layers, states, persistence) and **`LooperWindow`** | | none | **dropped by design** |
 | `recorder/*` (multitrack jam recording, Reaper project, clipsort log) | `QFile`, `QDir` | none | dropped (possible later feature) |
@@ -208,5 +237,19 @@ Qt-free replacement listed.
    auth hashing. Verified on both platforms.
 3. **UI and wrappers**: everything in the UI table above, audio-thread safety
    review.
+   **Phase 2 results (2026-11-23):**
+
+   | check | macOS | Windows |
+   |---|---|---|
+   | build, all targets | universal, no warnings from our code | x64 MSVC, 0 warnings |
+   | `ninjam_cli selftest` | 427 checks passed | 427 checks passed |
+   | two clients on a local `ninjamsrv` (tone each way, chat, BPM and BPI votes) | passed | — |
+   | Windows client and Mac client on the Mac's `ninjamsrv` over the LAN (440 Hz and 550 Hz each way, chat) | passed | passed |
+   | `ninjam_cli servers` (live public list) | 19 servers | — |
+
+   Not covered yet: sessions on public servers (they show a licence agreement,
+   and accepting it is the user's call), voice-chat and session-mode channels
+   (received but not played), settings persistence and chord parsing (they
+   belong with the UI in Phase 3).
 4. **Polish and docs**: release scripts, pluginval / clap-validator
    / auval checks, MkDocs manual deployed to `gh-pages` with `mkdocs gh-deploy`.
