@@ -275,9 +275,14 @@ Qt-free replacement listed.
      non-interactive session Direct3D refuses the swap chain ("resource not
      available ... may become available later") and YUP aborts. philotaxis
      does the same, so it is the environment, not this app.
+   - **Windows standalone on the real desktop:** launched in the logged-in
+     session (via a one-off scheduled task) and captured: the browser loads
+     the live list, and the jam room on the Mac's test server plays both tone
+     bots with meters, chords and chat. It still shows YUP's default window
+     icon; an app icon is a Phase 4 item.
    - **Not verified yet:** clicking through the UI (votes, dragging faders,
-     accepting a licence in the window), small window sizes, the Windows
-     standalone on a real desktop, and the plugins inside a DAW.
+     accepting a licence in the window), small window sizes, and the plugins
+     inside a DAW.
    - **Known gaps:** one local channel; the standalone exposes two inputs.
      Rooms whose list has no user names count their bot as a user.
 
