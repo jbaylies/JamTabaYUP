@@ -10,268 +10,398 @@
 
 /*  ninjam_cli: the headless harness for the engine.
 
-    Phase 1 only checks the platform pieces the engine stands on, with no GUI:
+      ninjam_cli selftest
+      ninjam_cli servers
+      ninjam_cli connect HOST:PORT --name NAME [options]
 
-      ninjam_cli --check [--offline]
+    connect drives the engine with a simulated audio device running in real
+    time (48 kHz, stereo in and out). Options:
 
-    1. Vorbis: encodes two seconds of a stereo sine to Ogg Vorbis in memory and
-       decodes it back.
-    2. HTTPS + JSON: fetches the public server list and parses it.
-    3. TCP: connects to the first listed server and reads its NINJAM auth
-       challenge (message 0x00), printing the protocol version.
-
-    Phase 2 grows this into a real client: connect, follow BPM/BPI, receive and
-    decode intervals, chat and vote.
+      --password P         log in with a password instead of anonymously
+      --seconds N          stay connected for N seconds (default 30)
+      --tone HZ            send a sine at HZ as the local channel (default: silence)
+      --no-transmit        don't send anything
+      --metronome          hear the metronome (off by default)
+      --chat TEXT          send a chat message once connected
+      --vote-bpm N         vote for a BPM once connected
+      --vote-bpi N         vote for a BPI once connected
+      --accept-licence     accept the server's licence agreement if it shows one
+      --expect-tone HZ     exit with failure unless a tone near HZ is received
+      --expect-bpm N       exit with failure unless the tempo ends up at N BPM
+      --expect-chat TEXT   exit with failure unless a chat message with TEXT arrives
+      --wav PATH           write what the device plays to a 16-bit WAV file
 */
 
+#include "SelfTest.h"
+
+#include "engine/JamEngine.h"
+#include "engine/net/PublicServerList.h"
+
 #include <yup_core/yup_core.h>
-#include <libogg/libogg.h>
-#include <libvorbis/libvorbis.h>
 
 #include <cmath>
 #include <cstdio>
-#include <cstring>
+#include <map>
+#include <mutex>
 #include <numbers>
 #include <vector>
 
 namespace
 {
 
-constexpr const char* serverListUrl = "https://ninbot.com/app/servers.php";
+using jamtaba::JamEngine;
+using jamtaba::JamEvent;
 
-void print (const yup::String& text)
+void print (const std::string& text)
 {
-    std::printf ("%s\n", text.toRawUTF8());
+    std::printf ("%s\n", text.c_str());
     std::fflush (stdout);
 }
 
-//==============================================================================
-bool checkVorbis()
+std::string timestamp()
 {
-    constexpr int sampleRate = 44100;
-    constexpr int channels = 2;
-    constexpr int totalFrames = sampleRate * 2;
-    constexpr int blockFrames = 1024;
+    return yup::Time::getCurrentTime().formatted ("%H:%M:%S ").toStdString();
+}
 
-    vorbis_info info;
-    vorbis_info_init (&info);
-    if (vorbis_encode_init_vbr (&info, channels, sampleRate, 0.4f) != 0)
+//==============================================================================
+/** Stands in for an audio interface: calls the engine's process() in blocks,
+    paced by the clock, and keeps statistics of what comes out per interval. */
+class VirtualDevice final : public yup::Thread
+{
+public:
+    static constexpr double sampleRate = 48000.0;
+    static constexpr int blockSize = 256;
+
+    struct IntervalStats
     {
-        print ("vorbis: encoder init failed");
-        vorbis_info_clear (&info);
-        return false;
-    }
-
-    vorbis_comment comment;
-    vorbis_comment_init (&comment);
-    vorbis_dsp_state dsp;
-    vorbis_analysis_init (&dsp, &info);
-    vorbis_block block;
-    vorbis_block_init (&dsp, &block);
-    ogg_stream_state stream;
-    ogg_stream_init (&stream, 1);
-
-    std::vector<unsigned char> encoded;
-    const auto appendPage = [&encoded] (const ogg_page& page)
-    {
-        encoded.insert (encoded.end(), page.header, page.header + page.header_len);
-        encoded.insert (encoded.end(), page.body, page.body + page.body_len);
+        std::uint32_t interval = 0;
+        float peak = 0.0f;
+        double frequency = 0.0;
     };
 
-    ogg_packet header, headerComment, headerCode;
-    vorbis_analysis_headerout (&dsp, &comment, &header, &headerComment, &headerCode);
-    ogg_stream_packetin (&stream, &header);
-    ogg_stream_packetin (&stream, &headerComment);
-    ogg_stream_packetin (&stream, &headerCode);
-
-    ogg_page page;
-    while (ogg_stream_flush (&stream, &page) != 0)
-        appendPage (page);
-
-    const auto drain = [&]
+    VirtualDevice (jamtaba::audio::AudioEngine& engineToUse, double toneHz, bool keepAudio)
+        : yup::Thread ("virtual audio device")
+        , engine (engineToUse)
+        , tone (toneHz)
+        , keep (keepAudio)
     {
-        ogg_packet packet;
-        while (vorbis_analysis_blockout (&dsp, &block) == 1)
+        engine.prepare (sampleRate, blockSize, 2);
+    }
+
+    ~VirtualDevice() override { stopThread (2000); }
+
+    std::vector<IntervalStats> takeStats()
+    {
+        std::lock_guard lock (statsLock);
+        return std::exchange (finished, {});
+    }
+
+    const std::vector<float>& getRecording() const { return recording; }
+
+private:
+    void run() override
+    {
+        std::vector<float> inL (blockSize), inR (blockSize), outL (blockSize), outR (blockSize);
+        const float* inputs[2] { inL.data(), inR.data() };
+        float* outputs[2] { outL.data(), outR.data() };
+
+        const double start = yup::Time::getMillisecondCounterHiRes();
+        std::int64_t rendered = 0;
+        double phase = 0.0;
+        std::uint32_t lastInterval = engine.getIntervalCount();
+
+        while (! threadShouldExit())
         {
-            vorbis_analysis (&block, nullptr);
-            vorbis_bitrate_addblock (&block);
-            while (vorbis_bitrate_flushpacket (&dsp, &packet) != 0)
+            // Keep up with the wall clock, like a sound card would demand
+            const double due = (yup::Time::getMillisecondCounterHiRes() - start) / 1000.0 * sampleRate;
+            if (static_cast<double> (rendered) > due)
             {
-                ogg_stream_packetin (&stream, &packet);
-                while (ogg_stream_pageout (&stream, &page) != 0)
-                    appendPage (page);
+                yup::Thread::sleep (2);
+                continue;
+            }
+
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const float value = tone > 0.0 ? 0.4f * static_cast<float> (std::sin (phase)) : 0.0f;
+                phase += 2.0 * std::numbers::pi * tone / sampleRate;
+                if (phase > 2.0 * std::numbers::pi)
+                    phase -= 2.0 * std::numbers::pi;
+                inL[static_cast<size_t> (i)] = value;
+                inR[static_cast<size_t> (i)] = value;
+            }
+
+            engine.process (inputs, 2, outputs, 2, blockSize);
+            rendered += blockSize;
+
+            const auto interval = engine.getIntervalCount();
+            if (interval != lastInterval)
+            {
+                closeInterval (lastInterval);
+                lastInterval = interval;
+            }
+
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const float l = outL[static_cast<size_t> (i)];
+                current.peak = std::max (current.peak, std::abs (l));
+                if (previous < 0.0f && l >= 0.0f && std::abs (l - previous) < 0.5f)
+                {
+                    if (crossings == 0)
+                        firstCrossing = sampleInInterval;
+                    lastCrossing = sampleInInterval;
+                    ++crossings;
+                }
+                previous = l;
+                ++sampleInInterval;
+                if (keep)
+                {
+                    recording.push_back (l);
+                    recording.push_back (outR[static_cast<size_t> (i)]);
+                }
             }
         }
-    };
+    }
 
-    for (int frame = 0; frame < totalFrames; frame += blockFrames)
+    void closeInterval (std::uint32_t interval)
     {
-        const int frames = std::min (blockFrames, totalFrames - frame);
-        float** buffer = vorbis_analysis_buffer (&dsp, frames);
-        for (int i = 0; i < frames; ++i)
+        current.interval = interval;
+        if (crossings > 2)
+            current.frequency = (crossings - 1) * sampleRate / static_cast<double> (lastCrossing - firstCrossing);
         {
-            const auto phase = 2.0 * std::numbers::pi * 440.0 * static_cast<double> (frame + i) / sampleRate;
-            buffer[0][i] = static_cast<float> (0.5 * std::sin (phase));
-            buffer[1][i] = buffer[0][i];
+            std::lock_guard lock (statsLock);
+            finished.push_back (current);
         }
-        vorbis_analysis_wrote (&dsp, frames);
-        drain();
+        current = {};
+        crossings = 0;
+        sampleInInterval = 0;
     }
 
-    vorbis_analysis_wrote (&dsp, 0);
-    drain();
-    while (ogg_stream_flush (&stream, &page) != 0)
-        appendPage (page);
+    jamtaba::audio::AudioEngine& engine;
+    const double tone;
+    const bool keep;
 
-    ogg_stream_clear (&stream);
-    vorbis_block_clear (&block);
-    vorbis_dsp_clear (&dsp);
-    vorbis_comment_clear (&comment);
-    vorbis_info_clear (&info);
+    IntervalStats current;
+    float previous = 0.0f;
+    int crossings = 0;
+    std::int64_t firstCrossing = 0, lastCrossing = 0, sampleInInterval = 0;
+    std::vector<float> recording;
 
-    // Decode it back with vorbisfile reading from memory
-    struct Reader
-    {
-        const std::vector<unsigned char>* data = nullptr;
-        size_t position = 0;
-    } reader { &encoded, 0 };
-
-    ov_callbacks callbacks {};
-    callbacks.read_func = [] (void* dest, size_t size, size_t count, void* source) -> size_t
-    {
-        auto& r = *static_cast<Reader*> (source);
-        const auto wanted = size * count;
-        const auto available = r.data->size() - r.position;
-        const auto bytes = std::min (wanted, available);
-        std::memcpy (dest, r.data->data() + r.position, bytes);
-        r.position += bytes;
-        return size > 0 ? bytes / size : 0;
-    };
-
-    OggVorbis_File file;
-    if (ov_open_callbacks (&reader, &file, nullptr, 0, callbacks) != 0)
-    {
-        print ("vorbis: could not open the encoded stream");
-        return false;
-    }
-
-    long decodedFrames = 0;
-    double peak = 0.0;
-    int section = 0;
-    for (;;)
-    {
-        float** pcm = nullptr;
-        const long frames = ov_read_float (&file, &pcm, 4096, &section);
-        if (frames <= 0)
-            break;
-
-        for (long i = 0; i < frames; ++i)
-            peak = std::max (peak, static_cast<double> (std::abs (pcm[0][i])));
-        decodedFrames += frames;
-    }
-    ov_clear (&file);
-
-    const bool ok = decodedFrames == totalFrames && peak > 0.4 && peak < 0.6;
-    print (yup::String::formatted ("vorbis: %d bytes for %d frames, decoded %ld frames, peak %.3f: %s",
-                                   static_cast<int> (encoded.size()), totalFrames, decodedFrames, peak, ok ? "ok" : "FAILED"));
-    return ok;
-}
-
-//==============================================================================
-struct ServerAddress
-{
-    yup::String host;
-    int port = 0;
+    std::mutex statsLock;
+    std::vector<IntervalStats> finished;
 };
 
-bool checkServerList (ServerAddress& firstServer)
+bool writeWav (const std::string& path, const std::vector<float>& interleaved, double sampleRate)
 {
-    auto stream = yup::URL (serverListUrl)
-                      .createInputStream (yup::URL::InputStreamOptions (yup::URL::ParameterHandling::inAddress)
-                                              .withConnectionTimeoutMs (10000));
-    if (stream == nullptr)
-    {
-        print (yup::String ("server list: could not open ") + serverListUrl);
+    yup::File file { yup::String (path) };
+    file.deleteFile();
+    yup::FileOutputStream out (file);
+    if (! out.openedOk())
         return false;
-    }
 
-    const auto json = yup::JSON::parse (stream->readEntireStreamAsString());
-    const auto* servers = json["servers"].getArray();
-    if (servers == nullptr || servers->isEmpty())
-    {
-        print ("server list: no \"servers\" array in the reply");
-        return false;
-    }
-
-    for (const auto& server : *servers)
-    {
-        print (yup::String::formatted ("  %-28s users %s/%s  bpm %s  bpi %s",
-                                       server["name"].toString().toRawUTF8(),
-                                       server["user_count"].toString().toRawUTF8(),
-                                       server["user_max"].toString().toRawUTF8(),
-                                       server["bpm"].toString().toRawUTF8(),
-                                       server["bpi"].toString().toRawUTF8()));
-    }
-
-    const auto& first = servers->getReference (0);
-    firstServer.host = first["host"].toString();
-    firstServer.port = first["port"].toString().getIntValue();
-
-    print (yup::String::formatted ("server list: %d servers: ok", servers->size()));
-    return firstServer.host.isNotEmpty() && firstServer.port > 0;
+    const auto dataBytes = static_cast<yup::uint32> (interleaved.size() * 2);
+    out.write ("RIFF", 4);
+    out.writeInt (static_cast<int> (36 + dataBytes));
+    out.write ("WAVEfmt ", 8);
+    out.writeInt (16);
+    out.writeShort (1);
+    out.writeShort (2);
+    out.writeInt (static_cast<int> (sampleRate));
+    out.writeInt (static_cast<int> (sampleRate * 4));
+    out.writeShort (4);
+    out.writeShort (16);
+    out.write ("data", 4);
+    out.writeInt (static_cast<int> (dataBytes));
+    for (const float sample : interleaved)
+        out.writeShort (static_cast<short> (std::lround (std::clamp (sample, -1.0f, 1.0f) * 32767.0f)));
+    return true;
 }
 
 //==============================================================================
-yup::uint32 readLE32 (const yup::uint8* bytes)
+std::string describe (const JamEvent& e)
 {
-    return static_cast<yup::uint32> (bytes[0])
-         | (static_cast<yup::uint32> (bytes[1]) << 8)
-         | (static_cast<yup::uint32> (bytes[2]) << 16)
-         | (static_cast<yup::uint32> (bytes[3]) << 24);
+    using T = JamEvent::Type;
+    switch (e.type)
+    {
+        case T::connecting: return "connecting to " + e.text;
+        case T::licence: return "licence agreement:\n" + e.text;
+        case T::connected: return "connected as " + e.user + ", up to " + std::to_string (e.number) + " channels";
+        case T::disconnected: return "disconnected" + (e.text.empty() ? std::string {} : ": " + e.text);
+        case T::tempo: return "tempo " + std::to_string (e.number) + " BPM, " + std::to_string (e.number2) + " BPI";
+        case T::channelAdded: return "channel added: " + e.user + " #" + std::to_string (e.channelIndex) + " \"" + e.channel + "\" (slot " + std::to_string (e.slot) + ")";
+        case T::channelChanged: return "channel changed: " + e.user + " #" + std::to_string (e.channelIndex) + " \"" + e.channel + "\"";
+        case T::channelRemoved: return "channel removed: " + e.user + " #" + std::to_string (e.channelIndex);
+        case T::userLeft: return "user left: " + e.user;
+        case T::chat: return "<" + (e.user.empty() ? std::string ("server") : e.user) + "> " + e.text;
+        case T::privateChat: return "*" + e.user + "* " + e.text;
+        case T::topic: return "topic: " + e.text;
+        case T::userJoined: return "joined: " + e.user;
+        case T::userParted: return "parted: " + e.user;
+        case T::userCount: return "users " + std::to_string (e.number) + "/" + std::to_string (e.number2);
+        case T::intervalReceived: return "received interval from " + e.user + " #" + std::to_string (e.channelIndex) + ", " + std::to_string (e.number) + " bytes";
+        case T::intervalSent: return "sent interval on channel " + std::to_string (e.channelIndex) + ", " + std::to_string (e.number) + " bytes";
+    }
+    return {};
 }
 
-bool checkAuthChallenge (const ServerAddress& server)
+struct Options
 {
-    yup::StreamingSocket socket;
-    if (! socket.connect (server.host, server.port, 10000))
+    std::string host;
+    int port = 2049;
+    std::string name = "jamtabayup";
+    std::string password;
+    double seconds = 30.0;
+    double tone = 0.0;
+    bool transmit = true;
+    bool metronome = false;
+    bool acceptLicence = false;
+    std::string chat;
+    int voteBpm = 0, voteBpi = 0;
+    double expectTone = 0.0;
+    int expectBpm = 0;
+    std::string expectChat;
+    std::string wav;
+};
+
+int connectAndRun (const Options& options)
+{
+    JamEngine engine;
+    auto& audio = engine.getAudio();
+    audio.getMetronome().mute.store (! options.metronome);
+
+    VirtualDevice device (audio, options.tone, ! options.wav.empty());
+
+    jamtaba::ConnectionSettings settings;
+    settings.host = options.host;
+    settings.port = options.port;
+    settings.userName = options.name;
+    settings.password = options.password;
+    settings.channels = { { options.tone > 0.0 ? "tone" : "silence", 0, true, options.transmit } };
+    engine.connect (settings);
+    audio.getLocalChannel (0).monitor.store (false);
+    device.startThread();
+
+    const double start = yup::Time::getMillisecondCounterHiRes() / 1000.0;
+    bool sentRequests = false;
+    bool disconnected = false;
+    int lastBpm = 0, toneIntervals = 0, receivedIntervals = 0;
+    bool chatSeen = false;
+
+    while (yup::Time::getMillisecondCounterHiRes() / 1000.0 - start < options.seconds && ! disconnected)
     {
-        print (yup::String::formatted ("tcp: could not connect to %s:%d", server.host.toRawUTF8(), server.port));
-        return false;
+        engine.pollEvents ([&] (const JamEvent& e)
+        {
+            print (timestamp() + describe (e));
+            switch (e.type)
+            {
+                case JamEvent::Type::licence:
+                    if (! options.acceptLicence)
+                        print ("declining: pass --accept-licence to accept it");
+                    engine.acceptLicence (options.acceptLicence);
+                    break;
+                case JamEvent::Type::disconnected:
+                    disconnected = true;
+                    break;
+                case JamEvent::Type::chat:
+                    chatSeen = chatSeen || (! options.expectChat.empty() && e.text.find (options.expectChat) != std::string::npos);
+                    break;
+                case JamEvent::Type::intervalReceived:
+                    ++receivedIntervals;
+                    break;
+                default:
+                    break;
+            }
+        });
+
+        if (engine.isConnected() && ! sentRequests && audio.isClockRunning())
+        {
+            sentRequests = true;
+            if (! options.chat.empty())
+                engine.sendChat (options.chat);
+            if (options.voteBpm > 0)
+                engine.voteBpm (options.voteBpm);
+            if (options.voteBpi > 0)
+                engine.voteBpi (options.voteBpi);
+        }
+
+        for (const auto& stats : device.takeStats())
+        {
+            if (stats.interval == 0)
+                continue;
+            print (timestamp() + yup::String::formatted ("interval %u played: peak %.3f, %.1f Hz", stats.interval, stats.peak, stats.frequency).toStdString());
+            if (options.expectTone > 0.0 && stats.peak > 0.1f && std::abs (stats.frequency - options.expectTone) < options.expectTone * 0.03)
+                ++toneIntervals;
+        }
+
+        lastBpm = audio.getBpm();
+        yup::Thread::sleep (20);
     }
 
-    // Every NINJAM message: 1 byte type, 4 bytes little-endian payload length
-    yup::uint8 header[5] {};
-    if (socket.waitUntilReady (true, 10000) != 1 || socket.read (header, 5, true) != 5)
+    engine.disconnect();
+    engine.pollEvents ([] (const JamEvent& e) { print (timestamp() + describe (e)); });
+    device.stopThread (2000);
+
+    if (! options.wav.empty())
+        print (writeWav (options.wav, device.getRecording(), VirtualDevice::sampleRate) ? "wrote " + options.wav : "could not write " + options.wav);
+
+    bool ok = true;
+    if (audio.getInputChunkOverflows() > 0)
+        print ("capture overflowed " + std::to_string (audio.getInputChunkOverflows()) + " times");
+    if (options.expectTone > 0.0)
     {
-        print ("tcp: no message from the server");
-        return false;
+        print ("intervals with the expected tone: " + std::to_string (toneIntervals) + ", intervals received: " + std::to_string (receivedIntervals));
+        ok = ok && toneIntervals >= 2;
+    }
+    if (options.expectBpm > 0)
+    {
+        print ("final tempo: " + std::to_string (lastBpm) + " BPM");
+        ok = ok && lastBpm == options.expectBpm;
+    }
+    if (! options.expectChat.empty())
+    {
+        print (std::string ("expected chat ") + (chatSeen ? "seen" : "NOT seen"));
+        ok = ok && chatSeen;
     }
 
-    const auto type = header[0];
-    const auto length = readLE32 (header + 1);
-    if (type != 0x00 || length < 16 || length > 65536)
+    print (ok ? "PASS" : "FAIL");
+    return ok ? 0 : 1;
+}
+
+int listServers()
+{
+    const auto servers = jamtaba::net::fetchPublicServerList();
+    if (! servers)
     {
-        print (yup::String::formatted ("tcp: expected an auth challenge, got type 0x%02x, %u bytes", type, length));
-        return false;
+        print ("could not fetch " + std::string (jamtaba::net::publicServerListUrl));
+        return 1;
     }
+    for (const auto& s : *servers)
+        print (yup::String::formatted ("%-30s users %2d/%-2d  %3d BPM  %2d BPI", s.address().c_str(), s.userCount, s.maxUsers, s.bpm, s.bpi).toStdString());
+    print (std::to_string (servers->size()) + " servers");
+    return servers->empty() ? 1 : 0;
+}
 
-    std::vector<yup::uint8> payload (length);
-    if (socket.read (payload.data(), static_cast<int> (length), true) != static_cast<int> (length))
-    {
-        print ("tcp: auth challenge cut short");
-        return false;
-    }
+int usage()
+{
+    print (R"(usage:
+  ninjam_cli selftest
+  ninjam_cli servers
+  ninjam_cli connect HOST:PORT --name NAME [options]
 
-    // challenge[8], server capabilities, protocol version, then the licence text if capabilities & 1
-    const auto capabilities = readLE32 (payload.data() + 8);
-    const auto protocol = readLE32 (payload.data() + 12);
-    const auto keepAlive = (capabilities >> 8) & 0xff;
-    const bool ok = protocol >= 0x00020000 && protocol <= 0x0002ffff;
-
-    print (yup::String::formatted ("tcp: %s:%d protocol 0x%08x, keepalive %us, licence %s: %s",
-                                   server.host.toRawUTF8(), server.port, protocol, keepAlive,
-                                   (capabilities & 1) != 0 ? "yes" : "no", ok ? "ok" : "FAILED"));
-    return ok;
+connect options:
+  --password P         log in with a password instead of anonymously
+  --seconds N          stay connected for N seconds (default 30)
+  --tone HZ            send a sine at HZ as the local channel (default: silence)
+  --no-transmit        don't send anything
+  --metronome          hear the metronome (off by default)
+  --chat TEXT          send a chat message once connected
+  --vote-bpm N         vote for a BPM once connected
+  --vote-bpi N         vote for a BPI once connected
+  --accept-licence     accept the server's licence agreement if it shows one
+  --expect-tone HZ     fail unless a tone near HZ is received
+  --expect-bpm N       fail unless the tempo ends up at N BPM
+  --expect-chat TEXT   fail unless a chat message containing TEXT arrives
+  --wav PATH           write what the device plays to a 16-bit WAV file)");
+    return 2;
 }
 
 } // namespace
@@ -279,31 +409,49 @@ bool checkAuthChallenge (const ServerAddress& server)
 //==============================================================================
 int main (int argc, char* argv[])
 {
-    bool check = false;
-    bool offline = false;
-    for (int i = 1; i < argc; ++i)
+    std::vector<std::string> args (argv + 1, argv + argc);
+    if (args.empty())
+        return usage();
+
+    if (args[0] == "selftest")
+        return jamtaba::cli::runSelfTest();
+    if (args[0] == "servers")
+        return listServers();
+    if (args[0] != "connect" || args.size() < 2)
+        return usage();
+
+    Options options;
+    const auto address = yup::String (args[1]);
+    options.host = address.upToLastOccurrenceOf (":", false, false).toStdString();
+    options.port = address.containsChar (':') ? address.fromLastOccurrenceOf (":", false, false).getIntValue() : 2049;
+
+    for (size_t i = 2; i < args.size(); ++i)
     {
-        const yup::String arg (argv[i]);
-        check = check || arg == "--check";
-        offline = offline || arg == "--offline";
+        const auto& a = args[i];
+        const auto next = [&]() -> std::string { return i + 1 < args.size() ? args[++i] : std::string {}; };
+        if (a == "--name") options.name = next();
+        else if (a == "--password") options.password = next();
+        else if (a == "--seconds") options.seconds = std::stod (next());
+        else if (a == "--tone") options.tone = std::stod (next());
+        else if (a == "--no-transmit") options.transmit = false;
+        else if (a == "--metronome") options.metronome = true;
+        else if (a == "--chat") options.chat = next();
+        else if (a == "--vote-bpm") options.voteBpm = std::stoi (next());
+        else if (a == "--vote-bpi") options.voteBpi = std::stoi (next());
+        else if (a == "--accept-licence") options.acceptLicence = true;
+        else if (a == "--expect-tone") options.expectTone = std::stod (next());
+        else if (a == "--expect-bpm") options.expectBpm = std::stoi (next());
+        else if (a == "--expect-chat") options.expectChat = next();
+        else if (a == "--wav") options.wav = next();
+        else
+        {
+            print ("unknown option " + a);
+            return usage();
+        }
     }
 
-    if (! check)
-    {
-        print ("usage: ninjam_cli --check [--offline]");
-        return 2;
-    }
+    if (options.host.empty() || options.port <= 0)
+        return usage();
 
-    bool ok = checkVorbis();
-
-    if (! offline)
-    {
-        ServerAddress server;
-        ok = checkServerList (server) && ok;
-        if (server.port > 0)
-            ok = checkAuthChallenge (server) && ok;
-    }
-
-    print (ok ? "all checks passed" : "some checks FAILED");
-    return ok ? 0 : 1;
+    return connectAndRun (options);
 }

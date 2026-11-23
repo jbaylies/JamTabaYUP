@@ -4,8 +4,10 @@ A NINJAM client for playing online jam sessions, as a standalone app and as VST3
 AU and CLAP plugins, for macOS (universal: Apple Silicon and Intel) and Windows
 (x64). Built with [YUP](https://github.com/kunitoki/yup), with a GPU-rendered UI.
 
-**Status: Phase 1 (scaffolding).** The plugin and app build and open an empty
-window. The NINJAM engine comes next. See [PORTING_PLAN.md](../PORTING_PLAN.md).
+**Status: Phase 2 (headless engine).** The NINJAM engine works without a GUI:
+it connects, follows BPM/BPI, receives and plays other musicians' intervals,
+sends ours, chats and votes. The plugin and app still open an empty window; the
+UI comes next. See [PORTING_PLAN.md](../PORTING_PLAN.md).
 
 ## Credits
 
@@ -44,8 +46,28 @@ The first configure downloads YUP's dependencies. Each build installs the VST3
 and CLAP plugins into the per-user plugin folders; pass
 `-DJAMTABA_INSTALL_PLUGINS=OFF` to skip that.
 
-`ninjam_cli --check` tests the engine's platform pieces with no GUI: Vorbis
-encode and decode, the public server list over HTTPS, and a NINJAM handshake.
+### Testing the engine
+
+`ninjam_cli` runs the engine with no GUI, driving it with a simulated audio
+device:
+
+```bash
+build/ninjam_cli selftest     # protocol, auth, Vorbis, resampling, audio engine
+build/ninjam_cli servers      # the public server list
+```
+
+For a full session, run Cockos's `ninjamsrv` with
+[tools/test-server/ninjamsrv-test.cfg](../tools/test-server/ninjamsrv-test.cfg)
+and connect two clients: one sends a tone, the other checks it hears it.
+
+```bash
+build/ninjam_cli connect localhost:20490 --name alice --tone 440 --seconds 30
+build/ninjam_cli connect localhost:20490 --name bob --no-transmit --seconds 25 --expect-tone 440
+```
+
+Run `ninjam_cli` without arguments for the other options (chat, votes, WAV
+capture). Public servers show a licence agreement first; `ninjam_cli` declines
+it unless you pass `--accept-licence`.
 
 ## License
 

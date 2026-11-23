@@ -51,7 +51,7 @@ yup_audio_plugin (
     PLUGIN_CREATE_LV2 OFF
     PLUGIN_CREATE_AAX OFF
     PLUGIN_CREATE_STANDALONE ON
-    PLUGIN_CLAP_FEATURES audio-effect utility mixing
+    PLUGIN_CLAP_FEATURES audio-effect utility
     PLUGIN_VST3_CATEGORIES Fx Network
     PLUGIN_AU_MANUFACTURER "${plugin_au_manufacturer}"
     PLUGIN_AU_SUBTYPE "${plugin_au_subtype}"
