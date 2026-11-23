@@ -322,8 +322,10 @@ Qt-free replacement listed.
      the standalone icon swap in CMake (entry 4), its own Info.plist (entry
      6), the centred text field (entry 8) and the VST3 folder icon in the
      packaging script (entry 10).
-   - **Not done:** nothing is published as a GitHub release yet. The 0.1.0
-     zips predate the flush-to-zero change and the VST3 folder icon fix.
+   - **Zips rebuilt** from `cd51e09` with flush-to-zero and our VST3 folder
+     icon: signatures verify after unzipping, auval passes, and the VST3
+     validator passes 47/47 on both platforms (macOS 37 MB, Windows 16 MB).
+   - **Not done:** nothing is published as a GitHub release yet.
      ASIO on Windows (YUP has it, off by default; it needs Steinberg's ASIO
      SDK). Clicking through the UI and the plugins inside a DAW are still
      untested.
