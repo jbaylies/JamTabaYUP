@@ -1,0 +1,62 @@
+JamTabaYUP @VERSION@ for macOS
+==============================
+
+A NINJAM client: jam online with musicians around the world. Standalone app
+plus AU, VST3 and CLAP plugins. Universal (Apple Silicon and Intel), macOS 11
+or later.
+
+Manual: https://jbaylies.github.io/JamTabaYUP/
+Source: https://github.com/jbaylies/JamTabaYUP
+
+
+Install
+-------
+
+The app goes anywhere, such as /Applications. For the plugins, copy each into
+its folder. In Finder, use Go > Go to Folder and paste the path. Create the
+folder if it doesn't exist.
+
+  JamTabaYUP.app         anywhere, such as /Applications
+  JamTabaYUP.component   ~/Library/Audio/Plug-Ins/Components   (AU: Logic, GarageBand)
+  JamTabaYUP.vst3        ~/Library/Audio/Plug-Ins/VST3         (Ableton Live, Cubase, Reaper)
+  JamTabaYUP.clap        ~/Library/Audio/Plug-Ins/CLAP         (Bitwig, Reaper)
+
+Then rescan plugins in your DAW.
+
+
+"JamTabaYUP can't be opened" or the plugin doesn't appear
+---------------------------------------------------------
+
+These builds aren't signed with an Apple Developer ID, so macOS blocks them
+after download. To allow them, run this in Terminal once per copied file:
+
+  xattr -dr com.apple.quarantine /Applications/JamTabaYUP.app
+  xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/JamTabaYUP.component
+  xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/JamTabaYUP.vst3
+  xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/CLAP/JamTabaYUP.clap
+
+For the app you can instead try to open it once, then click Open Anyway in
+System Settings > Privacy & Security.
+
+The first time the app opens your audio input, macOS asks for microphone
+access: click Allow, or the others will hear silence. Choose your audio
+interface with the Settings button at the top of the window.
+
+If Logic still doesn't list the AU, log out and back in, or run
+  killall -9 AudioComponentRegistrar
+and rescan in Logic's Plug-in Manager.
+
+
+Using the plugin
+----------------
+
+Insert it as an effect on the track you play into. JamTabaYUP sends that
+track's audio to the jam and plays the other musicians on the same track. Your
+DAW already monitors the track, so JamTabaYUP's own monitoring starts off.
+
+
+Licenses
+--------
+
+LICENSE: JamTabaYUP is free software under the GNU GPL, version 2 or later.
+THIRD_PARTY_LICENSES.txt: the libraries built into it.

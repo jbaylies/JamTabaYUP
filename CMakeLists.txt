@@ -73,6 +73,32 @@ if (TARGET ${target_name}_standalone_plugin)
         MACOSX_BUNDLE_COPYRIGHT "${plugin_copyright}")
 endif()
 
+# ==== The standalone app's icon. yup_audio_plugin doesn't pass an icon on to
+# its standalone target, so the app gets YUP's own icon; it is swapped for ours
+# here: icons.icns and the Icon Composer catalog on macOS, the icon resource
+# script on Windows.
+if (TARGET ${target_name}_standalone_plugin)
+    set (standalone ${target_name}_standalone_plugin)
+    get_target_property (standalone_sources ${standalone} SOURCES)
+    list (FILTER standalone_sources EXCLUDE REGEX "(icons\\.icns|Assets\\.car|_icon\\.rc)$")
+    set_property (TARGET ${standalone} PROPERTY SOURCES ${standalone_sources})
+
+    if (APPLE)
+        set (app_icon "${CMAKE_CURRENT_LIST_DIR}/resources/JamTabaYUP.icns")
+        get_target_property (standalone_resources ${standalone} RESOURCE)
+        list (FILTER standalone_resources EXCLUDE REGEX "(icons\\.icns|Assets\\.car)$")
+        list (APPEND standalone_resources "${app_icon}")
+        target_sources (${standalone} PRIVATE "${app_icon}")
+        set_target_properties (${standalone} PROPERTIES
+            RESOURCE "${standalone_resources}"
+            MACOSX_BUNDLE_ICON_FILE "JamTabaYUP.icns")
+    elseif (WIN32)
+        set (app_icon_rc "${CMAKE_CURRENT_BINARY_DIR}/JamTabaYUP_icon.rc")
+        file (WRITE "${app_icon_rc}" "1 ICON \"${CMAKE_CURRENT_LIST_DIR}/resources/JamTabaYUP.ico\"\n")
+        target_sources (${standalone} PRIVATE "${app_icon_rc}")
+    endif()
+endif()
+
 # ==== Install real copies of the VST3 and CLAP bundles. YUP symlinks them into
 # ~/Library/Audio/Plug-Ins, and a link into a privacy-protected folder such as
 # ~/Desktop is silently skipped by hosts without access to it (Ableton Live).

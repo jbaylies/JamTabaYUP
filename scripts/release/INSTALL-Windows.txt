@@ -1,0 +1,56 @@
+JamTabaYUP @VERSION@ for Windows
+================================
+
+A NINJAM client: jam online with musicians around the world. Standalone app
+plus VST3 and CLAP plugins. 64-bit Windows 10 or later. Nothing else needs
+installing.
+
+Manual: https://jbaylies.github.io/JamTabaYUP/
+Source: https://github.com/jbaylies/JamTabaYUP
+
+
+Install
+-------
+
+The app goes anywhere. For the plugins, copy each into its folder. Create the
+folder if it doesn't exist.
+
+  JamTabaYUP.exe    anywhere
+  JamTabaYUP.vst3   C:\Program Files\Common Files\VST3   (Ableton Live, Cubase, Reaper)
+  JamTabaYUP.clap   C:\Program Files\Common Files\CLAP   (Bitwig, Reaper)
+
+JamTabaYUP.vst3 is a folder: copy the whole folder. Copying into Program Files
+asks for administrator rights. Without them, use the per-user folders instead,
+%LOCALAPPDATA%\Programs\Common\VST3 and %LOCALAPPDATA%\Programs\Common\CLAP,
+though not every DAW scans them.
+
+Then rescan plugins in your DAW. In Ableton Live, turn on "Use VST3 Plug-In
+System Folders" in Settings > Plug-Ins.
+
+
+"Windows protected your PC"
+---------------------------
+
+JamTabaYUP.exe isn't code-signed, so SmartScreen warns about it the first
+time. Click More info, then Run anyway. DAWs load the plugins without this
+warning. Windows may also ask whether JamTabaYUP may use the network: allow
+it, or it can't reach the servers.
+
+Choose your audio interface with the Settings button at the top of the app's
+window, and the smallest buffer size that plays without crackles. This build
+uses Windows Audio (WASAPI); ASIO drivers aren't supported yet.
+
+
+Using the plugin
+----------------
+
+Insert it as an effect on the track you play into. JamTabaYUP sends that
+track's audio to the jam and plays the other musicians on the same track. Your
+DAW already monitors the track, so JamTabaYUP's own monitoring starts off.
+
+
+Licenses
+--------
+
+LICENSE: JamTabaYUP is free software under the GNU GPL, version 2 or later.
+THIRD_PARTY_LICENSES.txt: the libraries built into it.
