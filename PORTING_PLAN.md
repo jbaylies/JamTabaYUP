@@ -68,8 +68,15 @@ Cloned outside the repository, in `../JamTabaYUP-refs/`:
 - Release: `scripts/package_release.sh` (universal arm64+x86_64, macOS 11+,
   ad hoc signed), `scripts/package_release.ps1` (VS 2022, x64, static CRT),
   `scripts/make_release_zips.sh`, `scripts/third_party_licenses.sh`.
-- philotaxis has no GitHub Actions; JamTabaYUP adds a macOS + Windows build
-  workflow and a Pages workflow in Phase 4.
+- **Releases are built locally, as in philotaxis; no GitHub Actions.** The Mac
+  builds the universal macOS release, the Windows machine (over SSH) builds the
+  x64 one, and `make_release_zips.sh` zips both for `gh release create`. Why:
+  the builds are unsigned (ad hoc), so CI adds no signing or notarization; the
+  machines that build the release are the ones it is tested on (DAWs, audio
+  interfaces); YUP's first configure downloads several SDKs, which CI repeats on
+  every run; and macOS runners are slow and cost 10x minutes. The cost is that
+  no build runs on push, so each phase ends with a build on both machines.
+- Docs: `mkdocs gh-deploy` run locally pushes the built site to `gh-pages`.
 
 ### Toolchains verified in Phase 1
 
@@ -201,5 +208,5 @@ Qt-free replacement listed.
    auth hashing. Verified on both platforms.
 3. **UI and wrappers**: everything in the UI table above, audio-thread safety
    review.
-4. **Polish and docs**: release scripts, GitHub Actions, pluginval / clap-validator
-   / auval checks, MkDocs manual on `gh-pages`.
+4. **Polish and docs**: release scripts, pluginval / clap-validator
+   / auval checks, MkDocs manual deployed to `gh-pages` with `mkdocs gh-deploy`.
