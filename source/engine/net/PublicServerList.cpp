@@ -12,6 +12,8 @@
 
 #include <yup_core/yup_core.h>
 
+#include <cmath>
+
 namespace jamtaba::net
 {
 
@@ -27,6 +29,22 @@ int toInt (const yup::var& value, int fallback)
     if (text.isEmpty() || ! text.containsOnly ("-0123456789"))
         return fallback;
     return text.getIntValue();
+}
+
+/** Latitudes and longitudes also come as strings. */
+std::optional<float> toCoordinate (const yup::var& value, float limit)
+{
+    if (value.isVoid() || value.isUndefined())
+        return std::nullopt;
+
+    const auto text = value.toString().trim();
+    if (text.isEmpty() || ! text.containsOnly ("-+.0123456789"))
+        return std::nullopt;
+
+    const auto number = text.getFloatValue();
+    if (! std::isfinite (number) || std::abs (number) > limit)
+        return std::nullopt;
+    return number;
 }
 
 std::string toStdString (const yup::var& value)
@@ -71,8 +89,24 @@ std::optional<std::vector<PublicServer>> parsePublicServerList (const std::strin
             server.streamUrl = toStdString (entry["stream"]);
 
         if (const auto* users = entry["users"].getArray())
+        {
             for (const auto& user : *users)
-                server.users.push_back (toStdString (user.isObject() ? user["name"] : user));
+            {
+                PublicUser person;
+                if (user.isObject())
+                {
+                    person.name = toStdString (user["name"]);
+                    person.latitude = toCoordinate (user["lat"], 90.0f);
+                    person.longitude = toCoordinate (user["lon"], 180.0f);
+                    person.country = toStdString (user["country"]);
+                }
+                else
+                {
+                    person.name = toStdString (user);
+                }
+                server.users.push_back (std::move (person));
+            }
+        }
 
         result.push_back (std::move (server));
     }

@@ -11,6 +11,7 @@
 #pragma once
 
 #include "plugin/JamProcessor.h"
+#include "ui/Globe.h"
 #include "ui/Widgets.h"
 
 namespace jamtaba::ui
@@ -24,9 +25,11 @@ public:
     explicit ServerBrowser (JamProcessor& processor);
     ~ServerBrowser() override;
 
+    /** Render thread, UI lock held: refreshes the list and animates the globe. */
+    void tick (double frameSeconds);
+
     void resized() override;
     void paint (yup::Graphics& g) override;
-    void refreshDisplay (double lastFrameTimeSeconds) override;
 
 private:
     class RoomList;
@@ -34,7 +37,9 @@ private:
     void join (const std::string& host, int port, const std::string& password);
     void joinCustom();
     bool storeName();
-    void setStatus (yup::String text, bool isError);
+    void setStatus (yup::String text, bool isError);  // render thread or UI lock held
+    void postStatus (yup::String text, bool isError); // message thread
+    void showOnGlobe (const net::PublicServer* server);
 
     JamProcessor& processor;
     LineEdit nameField { "Your name" };
@@ -44,6 +49,9 @@ private:
     FlatButton connectButton { "Connect", true };
     FlatButton refreshButton { "Refresh" };
     std::unique_ptr<RoomList> rooms;
+    Globe globe;
+    std::string globeAddress; // the room the globe shows
+    std::string hoveredAddress;
 
     yup::String status;
     bool statusIsError = false;

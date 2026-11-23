@@ -17,6 +17,18 @@
 namespace jamtaba::net
 {
 
+/** Someone in a room, as the list reports them. The list gives a coarse
+    location (from the user's IP address, looked up by the list's own server);
+    JamTabaYUP keeps only the coordinates and the country. */
+struct PublicUser
+{
+    std::string name;
+    std::optional<float> latitude, longitude; // degrees; missing when the list has none
+    std::string country;
+
+    bool hasLocation() const noexcept { return latitude.has_value() && longitude.has_value(); }
+};
+
 struct PublicServer
 {
     std::string host;
@@ -25,7 +37,7 @@ struct PublicServer
     int bpi = 0;
     int userCount = 0;
     int maxUsers = 0; // 0 when the list doesn't say
-    std::vector<std::string> users;
+    std::vector<PublicUser> users;
     std::string streamUrl;
 
     std::string address() const { return host + ":" + std::to_string (port); }

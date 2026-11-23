@@ -156,7 +156,7 @@ void testServerList()
 {
     std::printf ("server list parsing\n");
     const std::string json = R"({"servers":[
-        {"host":"ninbot.com","port":"2049","bpi":"16","bpm":"100","name":"ninbot.com:2049","user_count":"2","user_max":"13","users":[{"name":"ninbot"},{"name":"amy"}]},
+        {"host":"ninbot.com","port":"2049","bpi":"16","bpm":"100","name":"ninbot.com:2049","user_count":"2","user_max":"13","users":[{"name":"ninbot"},{"name":"amy","lat":"41.3","lon":"-13.1","country":"Italy"},{"name":"bo","lat":"NaN","lon":"200"}]},
         {"name":"old.example.org:2051","bpm":"90","bpi":"8","user_max":"NaN"},
         {"name":"broken"}]})";
     const auto list = net::parsePublicServerList (json);
@@ -165,7 +165,13 @@ void testServerList()
     {
         const auto& a = (*list)[0];
         const auto& b = (*list)[1];
-        expect (a.host == "ninbot.com" && a.port == 2049 && a.bpm == 100 && a.bpi == 16 && a.userCount == 2 && a.maxUsers == 13 && a.users.size() == 2 && a.users[1] == "amy", "full entry");
+        expect (a.host == "ninbot.com" && a.port == 2049 && a.bpm == 100 && a.bpi == 16 && a.userCount == 2 && a.maxUsers == 13 && a.users.size() == 3 && a.users[1].name == "amy", "full entry");
+        if (a.users.size() == 3)
+        {
+            const auto& amy = a.users[1];
+            expect (amy.hasLocation() && std::abs (*amy.latitude - 41.3f) < 1.0e-4f && std::abs (*amy.longitude + 13.1f) < 1.0e-4f && amy.country == "Italy", "user location parsed");
+            expect (! a.users[0].hasLocation() && ! a.users[2].hasLocation(), "missing or invalid locations are dropped");
+        }
         expect (b.host == "old.example.org" && b.port == 2051 && b.maxUsers == 0, "name-only entry with NaN max users");
     }
     expect (! net::parsePublicServerList ("not json"), "garbage is rejected");

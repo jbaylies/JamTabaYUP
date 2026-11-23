@@ -1,0 +1,18 @@
+{"servers":[
+ {"host":"jam.example.org","port":"2049","bpm":"96","bpi":"16","user_count":"6","user_max":"8","users":[
+  {"name":"ninbot","lat":"40.7","lon":"-74.0","country":"United States"},
+  {"name":"lena@1.2.3.x","lat":"52.5","lon":"13.4","country":"Germany"},
+  {"name":"tomas@1.2.3.x","lat":"-23.5","lon":"-46.6","country":"Brazil"},
+  {"name":"aiko@1.2.3.x","lat":"35.7","lon":"139.7","country":"Japan"},
+  {"name":"kwame@1.2.3.x","lat":"5.6","lon":"-0.2","country":"Ghana"},
+  {"name":"priya@1.2.3.x","lat":"19.1","lon":"72.9","country":"India"},
+  {"name":"sam@1.2.3.x","lat":"45.5","lon":"-73.6","country":"Canada"}]},
+ {"host":"jam.example.org","port":"2050","bpm":"120","bpi":"8","user_count":"3","user_max":"8","users":[
+  {"name":"marco@1.2.3.x","lat":"41.9","lon":"12.5","country":"Italy"},
+  {"name":"elsa@1.2.3.x","lat":"59.3","lon":"18.1","country":"Sweden"},
+  {"name":"ines@1.2.3.x","lat":"38.7","lon":"-9.1","country":"Portugal"}]},
+ {"host":"groove.example.net","port":"2049","bpm":"88","bpi":"32","user_count":"2","user_max":"6","users":[
+  {"name":"jack@1.2.3.x","lat":"-33.9","lon":"151.2","country":"Australia"},
+  {"name":"mere@1.2.3.x","lat":"-41.3","lon":"174.8","country":"New Zealand"}]},
+ {"host":"quiet.example.com","port":"2049","bpm":"70","bpi":"8","user_count":"0","user_max":"8","users":[]}
+]}

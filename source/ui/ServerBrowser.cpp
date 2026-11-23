@@ -35,11 +35,20 @@ bool isBot (const std::string& name)
 } // namespace
 
 //==============================================================================
+/** The list of rooms. Its data changes in the render thread's tick and is
+    read by mouse handlers on the message thread, which take the UI lock. */
 class ServerBrowser::RoomList final : public yup::Component
 {
 public:
+    explicit RoomList (std::recursive_mutex& lockToUse) : uiLock (lockToUse) {}
+
     std::function<void (const net::PublicServer&)> onJoin;
 
+    /** Render thread, UI lock held. */
+    const std::vector<net::PublicServer>& getServers() const noexcept { return servers; }
+    const std::string& getHoveredAddress() const noexcept { return hoveredAddress; }
+
+    /** Render thread, UI lock held. */
     void setServers (std::vector<net::PublicServer> newServers)
     {
         servers = std::move (newServers);
@@ -63,10 +72,10 @@ public:
             yup::String names;
             for (const auto& user : server.users)
             {
-                if (isBot (user))
+                if (isBot (user.name))
                     continue;
                 ++musicians;
-                names << (names.isEmpty() ? "" : ", ") << theme::str (user.substr (0, user.find ('@')));
+                names << (names.isEmpty() ? "" : ", ") << theme::str (user.name.substr (0, user.name.find ('@')));
             }
             if (server.users.empty())
                 musicians = server.userCount;
@@ -110,18 +119,34 @@ public:
             drawText (g, "Looking for public servers...", theme::font (14.0f), getLocalBounds(), theme::dim, yup::Justification::center);
     }
 
-    void mouseMove (const yup::MouseEvent& event) override { setHover (rowAt (event.getPosition())); }
-    void mouseExit (const yup::MouseEvent&) override { setHover (-1); }
+    void mouseMove (const yup::MouseEvent& event) override
+    {
+        std::lock_guard guard (uiLock);
+        setHover (rowAt (event.getPosition()));
+    }
+
+    void mouseExit (const yup::MouseEvent&) override
+    {
+        std::lock_guard guard (uiLock);
+        setHover (-1);
+    }
 
     void mouseUp (const yup::MouseEvent& event) override
     {
-        const int row = rowAt (event.getPosition());
-        if (row >= 0 && onJoin)
-            onJoin (servers[static_cast<size_t> (row)]);
+        std::optional<net::PublicServer> chosen;
+        {
+            std::lock_guard guard (uiLock);
+            const int row = rowAt (event.getPosition());
+            if (row >= 0)
+                chosen = servers[static_cast<size_t> (row)];
+        }
+        if (chosen && onJoin)
+            onJoin (*chosen);
     }
 
     bool mouseWheel (const yup::MouseEvent& event, const yup::MouseWheelData& wheel) override
     {
+        std::lock_guard guard (uiLock);
         scroll = std::clamp (scroll - wheel.getDeltaY() * 40.0f, 0.0f, maxScroll());
         setHover (rowAt (event.getPosition()));
         repaint();
@@ -147,16 +172,20 @@ private:
         return std::max (0.0f, static_cast<float> (servers.size()) * (rowHeight + rowGap) - getHeight());
     }
 
-    void setHover (int row)
+    void setHover (int row) // UI lock held
     {
         if (row != hoverRow)
         {
             hoverRow = row;
+            if (row >= 0) // leaving the list keeps the last room on the globe
+                hoveredAddress = servers[static_cast<size_t> (row)].address();
             repaint();
         }
     }
 
+    std::recursive_mutex& uiLock;
     std::vector<net::PublicServer> servers;
+    std::string hoveredAddress;
     float scroll = 0.0f;
     int hoverRow = -1;
 };
@@ -165,7 +194,7 @@ private:
 ServerBrowser::ServerBrowser (JamProcessor& p)
     : yup::Component ("ServerBrowser")
     , processor (p)
-    , rooms (std::make_unique<RoomList>())
+    , rooms (std::make_unique<RoomList> (p.getUiLock()))
 {
     setOpaque (true);
 
@@ -175,7 +204,7 @@ ServerBrowser::ServerBrowser (JamProcessor& p)
     addressField.setText (theme::str (settings.lastServer), yup::dontSendNotification);
 
     for (auto* c : std::initializer_list<yup::Component*> { &nameField, &channelField, &addressField, &passwordField,
-                                                           &connectButton, &refreshButton, rooms.get() })
+                                                           &connectButton, &refreshButton, rooms.get(), &globe })
         addAndMakeVisible (c);
 
     connectButton.onClick = [this] { joinCustom(); };
@@ -184,11 +213,12 @@ ServerBrowser::ServerBrowser (JamProcessor& p)
     refreshButton.onClick = [this] { processor.getServerList().requestRefresh(); };
     rooms->onJoin = [this] (const net::PublicServer& server) { join (server.host, server.port, {}); };
 
-    const auto& model = processor.getModel();
+    const auto& model = processor.uiModel();
     if (! model.lastError.empty())
         setStatus (theme::str (model.lastError), true);
 
     rooms->setServers (processor.getServerList().getServers());
+    showOnGlobe (nullptr);
     seenVersion = processor.getServerList().getVersion();
     processor.getServerList().requestRefresh();
     nextRefresh = now() + refreshSeconds;
@@ -206,7 +236,7 @@ bool ServerBrowser::storeName()
 
     if (name.isEmpty())
     {
-        setStatus ("Choose a name first, so the others know who you are.", true);
+        postStatus ("Choose a name first, so the others know who you are.", true);
         nameField.focus();
         return false;
     }
@@ -218,7 +248,7 @@ void ServerBrowser::join (const std::string& host, int port, const std::string& 
 {
     if (! storeName())
         return;
-    setStatus ("Connecting to " + theme::str (host) + ":" + yup::String (port) + "...", false);
+    postStatus ("Connecting to " + theme::str (host) + ":" + yup::String (port) + "...", false);
     processor.connectTo (host, port, password);
 }
 
@@ -229,11 +259,55 @@ void ServerBrowser::joinCustom()
     const int port = address.containsChar (':') ? address.fromLastOccurrenceOf (":", false, false).getIntValue() : 2049;
     if (host.isEmpty() || port <= 0 || port > 65535)
     {
-        setStatus ("Type a server address as host:port, for example ninbot.com:2049.", true);
+        postStatus ("Type a server address as host:port, for example ninbot.com:2049.", true);
         addressField.focus();
         return;
     }
     join (host.toStdString(), port, passwordField.getText().toStdString());
+}
+
+void ServerBrowser::showOnGlobe (const net::PublicServer* server)
+{
+    const auto& servers = rooms->getServers();
+    if (server == nullptr)
+    {
+        // Keep the room already shown, else the hovered one, else the busiest
+        for (const auto* address : { &globeAddress, &hoveredAddress })
+            for (const auto& s : servers)
+                if (server == nullptr && ! address->empty() && s.address() == *address)
+                    server = &s;
+        if (server == nullptr && ! servers.empty())
+            server = &servers.front();
+    }
+    if (server == nullptr)
+    {
+        globe.setRoom ("Public rooms", {}, 0);
+        return;
+    }
+
+    globeAddress = server->address();
+    std::vector<Globe::Pin> pins;
+    int withoutLocation = 0;
+    for (const auto& user : server->users)
+    {
+        if (isBot (user.name))
+            continue;
+        if (! user.hasLocation())
+        {
+            ++withoutLocation;
+            continue;
+        }
+        pins.push_back ({ user.name.substr (0, user.name.find ('@')), user.country, *user.latitude, *user.longitude,
+                          theme::userColor (static_cast<int> (pins.size())) });
+    }
+    if (server->users.empty())
+        withoutLocation = server->userCount;
+    globe.setRoom (theme::str (globeAddress), std::move (pins), withoutLocation);
+}
+
+void ServerBrowser::postStatus (yup::String text, bool isError)
+{
+    runUiLocked (*this, processor.getUiLock(), [&] { setStatus (std::move (text), isError); });
 }
 
 void ServerBrowser::setStatus (yup::String text, bool isError)
@@ -243,16 +317,26 @@ void ServerBrowser::setStatus (yup::String text, bool isError)
     repaint();
 }
 
-void ServerBrowser::refreshDisplay (double)
+void ServerBrowser::tick (double frameSeconds)
 {
     auto& service = processor.getServerList();
     if (service.getVersion() != seenVersion)
     {
         seenVersion = service.getVersion();
         rooms->setServers (service.getServers());
+        showOnGlobe (nullptr); // the same room again, with fresh people
         if (service.lastFetchFailed() && rooms->isEmpty())
             setStatus ("Couldn't load the public server list. Check your internet connection, or connect to a server by address.", true);
     }
+
+    if (const auto& hovered = rooms->getHoveredAddress(); ! hovered.empty() && hovered != globeAddress)
+    {
+        hoveredAddress = hovered;
+        for (const auto& server : rooms->getServers())
+            if (server.address() == hovered)
+                showOnGlobe (&server);
+    }
+    globe.tick (frameSeconds);
 
     if (service.isFetching() != wasFetching)
     {
@@ -288,6 +372,10 @@ void ServerBrowser::resized()
     refreshButton.setBounds (heading.removeFromRight (90.0f).reduced (0.0f, 2.0f));
     area.removeFromTop (34.0f); // heading text and status line
 
+    const float globeWidth = area.getWidth() > 900.0f ? std::min (620.0f, area.getWidth() * 0.46f) : 0.0f;
+    globe.setVisible (globeWidth > 0.0f);
+    globe.setBounds (area.removeFromRight (globeWidth));
+    area.removeFromRight (globeWidth > 0.0f ? 16.0f : 0.0f);
     rooms->setBounds (area);
 }
 

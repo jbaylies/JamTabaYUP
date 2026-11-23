@@ -92,6 +92,7 @@ public:
 
     User* findUser (const std::string& fullName);
     Channel* findChannel (const std::string& fullName, int index);
+    const Channel* findChannel (const std::string& fullName, int index) const;
 
 private:
     void addChat (ChatLine line);

@@ -21,19 +21,23 @@ JamEditor::JamEditor (JamProcessor& p)
 {
     setOpaque (true);
     showView();
+    startTimerHz (30);
 }
 
-JamEditor::~JamEditor() = default;
+JamEditor::~JamEditor()
+{
+    stopTimer();
+}
 
 void JamEditor::showView()
 {
-    const bool inRoom = processor.getModel().connection != SessionModel::Connection::disconnected;
+    const bool inRoom = processor.uiModel().connection != SessionModel::Connection::disconnected;
     if (inRoom && room == nullptr)
     {
         browser.reset();
         room = std::make_unique<ui::JamRoom> (processor);
         addAndMakeVisible (*room);
-        seenLayout = processor.getModel().layoutVersion;
+        seenLayout = processor.uiModel().layoutVersion;
     }
     else if (! inRoom && browser == nullptr)
     {
@@ -48,16 +52,38 @@ void JamEditor::showView()
     resized();
 }
 
-void JamEditor::refreshDisplay (double)
-{
-    showView();
+// Threads: YUP calls refreshDisplay() and paint() on its render thread and
+// timers and mouse events on the message thread. All per-frame work happens
+// in the tick below, under the UI lock; components are only added or removed
+// from the timer, under runUiLocked().
 
-    if (room != nullptr && processor.getModel().layoutVersion != seenLayout)
+void JamEditor::timerCallback()
+{
+    ui::runUiLocked (*this, processor.getUiLock(), [this]
     {
-        seenLayout = processor.getModel().layoutVersion;
-        room->layoutChanged();
-        room->repaint();
-    }
+        showView();
+
+        if (room != nullptr)
+        {
+            if (processor.uiModel().layoutVersion != seenLayout)
+            {
+                seenLayout = processor.uiModel().layoutVersion;
+                room->layoutChanged();
+            }
+            room->syncStructure();
+        }
+    });
+}
+
+void JamEditor::refreshDisplay (double frameSeconds)
+{
+    std::lock_guard guard (processor.getUiLock());
+    processor.updateUiModel();
+
+    if (browser != nullptr)
+        browser->tick (frameSeconds);
+    if (room != nullptr)
+        room->tick (frameSeconds);
 }
 
 void JamEditor::resized()

@@ -14,6 +14,7 @@
 #include "ui/JamTheme.h"
 
 #include <functional>
+#include <mutex>
 
 namespace jamtaba::ui
 {
@@ -169,6 +170,13 @@ private:
     Editor editor;
     yup::String placeholder;
 };
+
+/** YUP paints on a render thread while mouse events and timers run on the
+    message thread. Message-thread code that changes what the UI paints, or
+    adds and removes components, goes through here: it runs @a fn holding the
+    window's graphics context lock (so no paint is in progress) and @a uiLock
+    (so no per-frame tick is either). Never call it from the render thread. */
+void runUiLocked (yup::Component& component, std::recursive_mutex& uiLock, const std::function<void()>& fn);
 
 /** Draws text in a box, left or centred, clipped to one line. */
 void drawText (yup::Graphics& g, const yup::String& text, const yup::Font& font,

@@ -19,6 +19,8 @@
 #include <array>
 #include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 
 namespace jamtaba
 {
@@ -58,7 +60,19 @@ public:
     ~JamProcessor() override;
 
     JamEngine& getEngine() noexcept { return engine; }
-    SessionModel& getModel() noexcept { return model; }
+
+    /** The session as the UI sees it this frame. YUP paints on its own render
+        thread, so the UI never reads the processor's live model: it reads this
+        copy, which only changes in updateUiModel(). Read it while holding the
+        UI lock, or from paint(). */
+    const SessionModel& uiModel() const noexcept { return *uiSnapshot; }
+
+    /** Render thread, with the UI lock held: takes the latest published model. */
+    void updateUiModel();
+
+    /** Guards UI state shared between the render thread and the message
+        thread. See ui::runUiLocked(). */
+    std::recursive_mutex& getUiLock() noexcept { return uiLock; }
     JamSettings& getSettings() noexcept { return settings; }
     ServerListService& getServerList() noexcept { return serverList; }
     bool isStandalone() const noexcept;
@@ -68,6 +82,9 @@ public:
 
     /** Pushes the local channel, metronome and master settings to the engine. */
     void applySettings();
+
+    /** Message thread: turns receiving one remote channel on or off. */
+    void setReceiving (const std::string& fullName, int channelIndex, bool receive);
 
     /** The remote mix is remembered per user name and channel. */
     void rememberRemoteMix (const std::string& fullName, int channelIndex);
@@ -100,10 +117,15 @@ private:
 
     void timerCallback() override;
     void restoreRemoteMix (const JamEvent& event);
+    void publishModel();
     static std::string mixKey (const std::string& fullName, int channelIndex);
 
     JamEngine engine;
-    SessionModel model;
+    SessionModel model; // message thread only
+    std::mutex publishLock;
+    std::shared_ptr<const SessionModel> published; // the latest copy, guarded by publishLock
+    std::shared_ptr<const SessionModel> uiSnapshot; // the UI's copy, guarded by uiLock
+    std::recursive_mutex uiLock;
     JamSettings settings;
     ServerListService serverList;
     std::map<std::string, StripMemory> remoteMix;

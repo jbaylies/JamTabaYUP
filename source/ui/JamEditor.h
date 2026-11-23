@@ -26,19 +26,21 @@ class JamRoom;
 /** The main window: the server browser while disconnected, the jam room
     while connecting or connected. */
 class JamEditor final : public yup::AudioProcessorEditor
+                      , private yup::Timer
 {
 public:
     explicit JamEditor (JamProcessor& processor);
     ~JamEditor() override;
 
     bool isResizable() const override { return true; }
-    yup::Size<int> getPreferredSize() const override { return { 1180, 720 }; }
+    yup::Size<int> getPreferredSize() const override { return { 1360, 760 }; }
 
     void resized() override;
     void paint (yup::Graphics& g) override;
     void refreshDisplay (double lastFrameTimeSeconds) override;
 
 private:
+    void timerCallback() override;
     void showView();
 
     JamProcessor& processor;

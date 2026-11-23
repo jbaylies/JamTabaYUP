@@ -50,8 +50,10 @@ class BeatBar final : public yup::Component
 public:
     explicit BeatBar (JamProcessor& processor) : processor (processor) {}
 
+    /** Render thread, UI lock held. */
+    void tick();
+
     void paint (yup::Graphics& g) override;
-    void refreshDisplay (double lastFrameTimeSeconds) override;
 
 private:
     JamProcessor& processor;
@@ -191,11 +193,18 @@ class JamRoom final : public yup::Component
 public:
     explicit JamRoom (JamProcessor& processor);
 
+    /** Message thread, inside runUiLocked(): rebuilds the remote strips. */
     void layoutChanged();
+
+    /** Message thread, inside runUiLocked(): shows or hides the licence
+        prompt and makes room for the chord row. */
+    void syncStructure();
+
+    /** Render thread, UI lock held: meters, tempo, chat, the beat bar. */
+    void tick (double frameSeconds);
 
     void resized() override;
     void paint (yup::Graphics& g) override;
-    void refreshDisplay (double lastFrameTimeSeconds) override;
 
 private:
     JamProcessor& processor;

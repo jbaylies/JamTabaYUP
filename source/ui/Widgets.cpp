@@ -16,6 +16,23 @@
 namespace jamtaba::ui
 {
 
+void runUiLocked (yup::Component& component, std::recursive_mutex& uiLock, const std::function<void()>& fn)
+{
+    // Always graphics context first, then the UI lock: the render thread
+    // takes them in the same order (it paints under the first, and its tick
+    // takes only the second, before painting).
+    const auto locked = [&]
+    {
+        std::lock_guard guard (uiLock);
+        fn();
+    };
+
+    if (auto* native = component.getNativeComponent())
+        native->runWithGraphicsContext (locked);
+    else
+        locked();
+}
+
 void drawText (yup::Graphics& g, const yup::String& text, const yup::Font& font,
                yup::Rectangle<float> area, yup::Color color, yup::Justification justification)
 {

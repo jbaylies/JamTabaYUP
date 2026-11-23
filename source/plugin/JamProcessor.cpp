@@ -36,6 +36,8 @@ JamProcessor::JamProcessor()
 {
     // In a DAW the host already monitors the track, so ours starts off
     settings.monitor = isStandalone();
+    publishModel();
+    updateUiModel();
     applySettings();
     startTimerHz (30);
 
@@ -109,6 +111,29 @@ std::string JamProcessor::mixKey (const std::string& fullName, int channelIndex)
     return SessionModel::displayNameOf (fullName) + "#" + std::to_string (channelIndex);
 }
 
+void JamProcessor::publishModel()
+{
+    auto copy = std::make_shared<const SessionModel> (model);
+    std::lock_guard guard (publishLock);
+    published = std::move (copy);
+}
+
+void JamProcessor::updateUiModel()
+{
+    std::lock_guard guard (publishLock);
+    uiSnapshot = published;
+}
+
+void JamProcessor::setReceiving (const std::string& fullName, int channelIndex, bool receive)
+{
+    engine.setReceiving (fullName, channelIndex, receive);
+    if (auto* channel = model.findChannel (fullName, channelIndex))
+    {
+        channel->receiving = receive;
+        publishModel();
+    }
+}
+
 void JamProcessor::rememberRemoteMix (const std::string& fullName, int channelIndex)
 {
     const auto* channel = model.findChannel (fullName, channelIndex);
@@ -136,14 +161,19 @@ void JamProcessor::restoreRemoteMix (const JamEvent& event)
 
 void JamProcessor::timerCallback()
 {
+    bool any = false;
     engine.pollEvents ([&] (const JamEvent& event)
     {
+        any = true;
         model.handle (event);
         if (event.type == JamEvent::Type::channelAdded)
             restoreRemoteMix (event);
         if (event.type == JamEvent::Type::connected)
             applySettings();
     });
+
+    if (any)
+        publishModel();
 }
 
 //==============================================================================

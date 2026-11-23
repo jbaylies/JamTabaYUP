@@ -43,6 +43,11 @@ SessionModel::Channel* SessionModel::findChannel (const std::string& fullName, i
     return found == user->channels.end() ? nullptr : &*found;
 }
 
+const SessionModel::Channel* SessionModel::findChannel (const std::string& fullName, int index) const
+{
+    return const_cast<SessionModel*> (this)->findChannel (fullName, index);
+}
+
 void SessionModel::reset()
 {
     users.clear();

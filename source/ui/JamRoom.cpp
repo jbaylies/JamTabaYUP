@@ -110,7 +110,7 @@ bool TempoControl::mouseWheel (const yup::MouseEvent&, const yup::MouseWheelData
 }
 
 //==============================================================================
-void BeatBar::refreshDisplay (double)
+void BeatBar::tick()
 {
     const auto& audio = processor.getEngine().getAudio();
     const int spi = audio.getSamplesPerInterval();
@@ -128,7 +128,7 @@ void BeatBar::paint (yup::Graphics& g)
 {
     auto area = getLocalBounds();
     const auto& audio = processor.getEngine().getAudio();
-    const auto& model = processor.getModel();
+    const auto& model = processor.uiModel();
 
     if (! audio.isClockRunning() || audio.getBpi() <= 0)
     {
@@ -235,9 +235,7 @@ ChannelStrip::ChannelStrip (JamProcessor& p, Kind stripKind)
         receiveChip.onToggle = [this] (bool on)
         {
             receiving = on;
-            processor.getEngine().setReceiving (userName, channelIndex, on);
-            if (auto* channel = processor.getModel().findChannel (userName, channelIndex))
-                channel->receiving = on;
+            processor.setReceiving (userName, channelIndex, on);
         };
     }
 }
@@ -316,9 +314,12 @@ void ChannelStrip::showInputMenu()
         if (id <= 0)
             return;
         processor.getSettings().inputMode = static_cast<JamSettings::InputMode> (id - 1);
-        const char* names[] = { "In 1+2", "In 1", "In 2" };
-        inputButton.setText (names[id - 1]);
         processor.applySettings();
+        runUiLocked (*this, processor.getUiLock(), [this, id]
+        {
+            const char* names[] = { "In 1+2", "In 1", "In 2" };
+            inputButton.setText (names[id - 1]);
+        });
     });
 }
 
@@ -329,7 +330,7 @@ void ChannelStrip::update (double frameSeconds)
 
     if (kind == Kind::remote)
     {
-        if (const auto* channel = processor.getModel().findChannel (userName, channelIndex))
+        if (const auto* channel = processor.uiModel().findChannel (userName, channelIndex))
         {
             if (channel->lastIntervalTime != lastIntervalTime)
             {
@@ -436,7 +437,7 @@ void RemoteArea::rebuild()
     groups.clear();
 
     float x = 0.0f;
-    for (const auto& user : processor.getModel().users)
+    for (const auto& user : processor.uiModel().users)
     {
         if (user.channels.empty())
             continue;
@@ -537,7 +538,7 @@ void ChatPanel::send()
 
 void ChatPanel::rebuildLog()
 {
-    const auto& chat = processor.getModel().chat;
+    const auto& chat = processor.uiModel().chat;
     const float width = std::max (40.0f, getWidth() - 24.0f);
 
     auto modifier = log.startUpdate();
@@ -571,7 +572,7 @@ void ChatPanel::rebuildLog()
 
 void ChatPanel::update()
 {
-    const auto version = processor.getModel().chatVersion;
+    const auto version = processor.uiModel().chatVersion;
     if (version == seenVersion && std::abs (getWidth() - 24.0f - logWidth) < 0.5f)
         return;
 
@@ -654,7 +655,7 @@ void LicencePrompt::paint (yup::Graphics& g)
         auto modifier = body.startUpdate();
         modifier.setMaxSize ({ area.getWidth(), area.getHeight() });
         modifier.setWrap (yup::StyledText::wrap);
-        modifier.appendText (theme::str (processor.getModel().licenceText), theme::dim, theme::font (13.0f));
+        modifier.appendText (theme::str (processor.uiModel().licenceText), theme::dim, theme::font (13.0f));
     }
     g.setClipPath (area);
     g.fillFittedText (body, area);
@@ -703,10 +704,13 @@ JamRoom::JamRoom (JamProcessor& p)
     };
     chatButton.onClick = [this]
     {
-        auto& s = processor.getSettings();
-        s.chatVisible = ! s.chatVisible;
-        chat.setVisible (s.chatVisible);
-        resized();
+        runUiLocked (*this, processor.getUiLock(), [this]
+        {
+            auto& s = processor.getSettings();
+            s.chatVisible = ! s.chatVisible;
+            chat.setVisible (s.chatVisible);
+            resized();
+        });
     };
     leaveButton.onClick = [this] { processor.disconnect(); };
 
@@ -718,22 +722,26 @@ void JamRoom::layoutChanged()
     remoteArea.rebuild();
 }
 
-void JamRoom::refreshDisplay (double frameSeconds)
+void JamRoom::tick (double frameSeconds)
 {
     const auto& audio = processor.getEngine().getAudio();
-    bpmControl.setCurrent (audio.isClockRunning() ? audio.getBpm() : processor.getModel().bpm);
-    bpiControl.setCurrent (audio.isClockRunning() ? audio.getBpi() : processor.getModel().bpi);
+    bpmControl.setCurrent (audio.isClockRunning() ? audio.getBpm() : processor.uiModel().bpm);
+    bpiControl.setCurrent (audio.isClockRunning() ? audio.getBpi() : processor.uiModel().bpi);
 
+    beatBar.tick();
     localStrip.update (frameSeconds);
     remoteArea.update (frameSeconds);
     masterMeter.update (processor.getEngine().getAudio().getMasterMeter(), frameSeconds);
     if (chat.isVisible())
         chat.update();
+}
 
-    if (processor.getModel().chords.isEmpty() == hadChords)
+void JamRoom::syncStructure()
+{
+    if (processor.uiModel().chords.isEmpty() == hadChords)
         resized(); // the chord row appeared or went away
 
-    const bool showLicence = processor.getModel().connection == SessionModel::Connection::licence;
+    const bool showLicence = processor.uiModel().connection == SessionModel::Connection::licence;
     if (licence.isVisible() != showLicence)
     {
         licence.setVisible (showLicence);
@@ -766,7 +774,7 @@ void JamRoom::resized()
     bpiControl.setBounds (top.removeFromLeft (150.0f));
 
     area.removeFromTop (10.0f);
-    const bool chords = ! processor.getModel().chords.isEmpty();
+    const bool chords = ! processor.uiModel().chords.isEmpty();
     hadChords = chords;
     beatBar.setBounds (area.removeFromTop (chords ? 60.0f : 36.0f));
     area.removeFromTop (12.0f);
@@ -787,7 +795,7 @@ void JamRoom::paint (yup::Graphics& g)
     g.setFillColor (theme::background);
     g.fillAll();
 
-    const auto& model = processor.getModel();
+    const auto& model = processor.uiModel();
     auto name = nameArea;
     drawText (g, theme::str (model.serverAddress), theme::font (15.0f), name.removeFromTop (24.0f), theme::text);
     yup::String info;

@@ -49,7 +49,12 @@ void ServerListService::run()
             continue;
 
         fetching.store (true);
-        auto result = net::fetchPublicServerList (8000);
+
+        // For scripted testing: JAMTABA_SERVER_LIST=file.json reads a local list
+        const auto localList = yup::SystemStats::getEnvironmentVariable ("JAMTABA_SERVER_LIST", {});
+        auto result = localList.isNotEmpty()
+                        ? net::parsePublicServerList (yup::File (localList).loadFileAsString().toStdString())
+                        : net::fetchPublicServerList (8000);
         if (result)
         {
             // Busiest rooms first
