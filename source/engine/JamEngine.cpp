@@ -608,10 +608,10 @@ private:
                 continue;
             }
 
-            const auto& setup = settings.channels[static_cast<size_t> (i)];
+            // Mono or stereo can change while connected; each interval uses the current choice
             const double deviceRate = audio.getSampleRate();
             const int encodeRate = deviceRate > maxEncodeRate ? maxEncodeRate : static_cast<int> (deviceRate);
-            upload.channels = setup.stereo ? 2 : 1;
+            upload.channels = audio.getLocalChannel (i).stereo.load() ? 2 : 1;
             upload.encoder = std::make_unique<codec::VorbisEncoder> (upload.channels, encodeRate, settings.encoderQuality);
             upload.resampler = deviceRate > maxEncodeRate ? std::make_unique<codec::StreamResampler> (deviceRate, encodeRate) : nullptr;
             if (! upload.encoder->isValid())
@@ -711,11 +711,15 @@ private:
     void keepAlive()
     {
         const auto now = nowSeconds();
-        if (now - lastSend >= keepAliveSeconds)
+
+        // Before the login, the reference server treats anything but the
+        // login itself (keepalives included) as a bad login and drops us.
+        // It allows 120 s to read a licence, so nothing is lost by waiting.
+        if (state == State::connected && now - lastSend >= keepAliveSeconds)
             send (makeKeepAlive());
 
         // The server keeps alive at least as often as it asks us to
-        const double timeout = state == State::awaitingLicence ? 600.0 : keepAliveSeconds * 4.0 + 10.0;
+        const double timeout = state == State::awaitingLicence ? 130.0 : keepAliveSeconds * 4.0 + 10.0;
         if (now - lastReceive > timeout)
             fail ("The server stopped responding");
     }

@@ -9,7 +9,9 @@
 */
 
 #include "ui/JamEditor.h"
+#include "ui/JamRoom.h"
 #include "ui/JamTheme.h"
+#include "ui/ServerBrowser.h"
 
 namespace jamtaba
 {
@@ -18,15 +20,58 @@ JamEditor::JamEditor (JamProcessor& p)
     : processor (p)
 {
     setOpaque (true);
+    showView();
+}
+
+JamEditor::~JamEditor() = default;
+
+void JamEditor::showView()
+{
+    const bool inRoom = processor.getModel().connection != SessionModel::Connection::disconnected;
+    if (inRoom && room == nullptr)
+    {
+        browser.reset();
+        room = std::make_unique<ui::JamRoom> (processor);
+        addAndMakeVisible (*room);
+        seenLayout = processor.getModel().layoutVersion;
+    }
+    else if (! inRoom && browser == nullptr)
+    {
+        room.reset();
+        browser = std::make_unique<ui::ServerBrowser> (processor);
+        addAndMakeVisible (*browser);
+    }
+    else
+    {
+        return;
+    }
+    resized();
+}
+
+void JamEditor::refreshDisplay (double)
+{
+    showView();
+
+    if (room != nullptr && processor.getModel().layoutVersion != seenLayout)
+    {
+        seenLayout = processor.getModel().layoutVersion;
+        room->layoutChanged();
+        room->repaint();
+    }
+}
+
+void JamEditor::resized()
+{
+    if (browser != nullptr)
+        browser->setBounds (getLocalBounds());
+    if (room != nullptr)
+        room->setBounds (getLocalBounds());
 }
 
 void JamEditor::paint (yup::Graphics& g)
 {
     g.setFillColor (theme::background);
     g.fillAll();
-
-    g.setFillColor (theme::text);
-    g.fillFittedText ("JamTabaYUP", theme::labelFont (32.0f), getLocalBounds());
 }
 
 //==============================================================================

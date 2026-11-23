@@ -12,22 +12,39 @@
 
 #include "plugin/JamProcessor.h"
 
+#include <memory>
+
 namespace jamtaba
 {
 
-/** The main window. Phase 3 fills it with the server browser and the jam room. */
+namespace ui
+{
+class ServerBrowser;
+class JamRoom;
+} // namespace ui
+
+/** The main window: the server browser while disconnected, the jam room
+    while connecting or connected. */
 class JamEditor final : public yup::AudioProcessorEditor
 {
 public:
     explicit JamEditor (JamProcessor& processor);
+    ~JamEditor() override;
 
     bool isResizable() const override { return true; }
-    yup::Size<int> getPreferredSize() const override { return { 1100, 700 }; }
+    yup::Size<int> getPreferredSize() const override { return { 1180, 720 }; }
 
+    void resized() override;
     void paint (yup::Graphics& g) override;
+    void refreshDisplay (double lastFrameTimeSeconds) override;
 
 private:
-    [[maybe_unused]] JamProcessor& processor;
+    void showView();
+
+    JamProcessor& processor;
+    std::unique_ptr<ui::ServerBrowser> browser;
+    std::unique_ptr<ui::JamRoom> room;
+    std::uint32_t seenLayout = 0;
 
     YUP_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (JamEditor)
 };
