@@ -1,0 +1,46 @@
+site_name: JamTabaYUP
+site_description: Jam online with musicians around the world on NINJAM servers.
+site_url: https://jbaylies.github.io/JamTabaYUP/
+repo_url: https://github.com/jbaylies/JamTabaYUP
+repo_name: jbaylies/JamTabaYUP
+edit_uri: edit/main/docs/
+copyright: JamTabaYUP is free software under the GNU GPL, version 2 or later.
+
+theme:
+  name: material
+  logo: images/icon.png
+  favicon: images/icon.png
+  palette:
+    scheme: slate
+    primary: teal
+    accent: teal
+  features:
+    - navigation.sections
+    - navigation.footer
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installing: installing.md
+      - First jam: first-jam.md
+  - Using JamTabaYUP:
+      - The jam room: jam-room.md
+      - Your channel: your-channel.md
+      - Other musicians: other-musicians.md
+      - Tempo, metronome and voting: tempo.md
+      - Chat and chord progressions: chat.md
+      - In your DAW: plugin.md
+  - Help:
+      - FAQ and troubleshooting: faq.md
+      - Differences from JamTaba 2: differences.md
+  - Development:
+      - Building and testing: building.md
+      - Credits and license: credits.md
