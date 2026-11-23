@@ -30,6 +30,14 @@ $vst3 = Join-Path $stage 'JamTabaYUP.vst3'
 Copy-Item -Recurse (Join-Path $build 'VST3\Release\jamtaba_vst3_plugin.vst3') $vst3
 Rename-Item (Join-Path $vst3 'Contents\x86_64-win\jamtaba_vst3_plugin.vst3') 'JamTabaYUP.vst3'
 
+# The VST3 SDK gives the bundle folder its default icon; ours replaces it
+$folderIcon = Join-Path $vst3 'PlugIn.ico'
+if (Test-Path $folderIcon) {
+    attrib -s -h $folderIcon
+    Copy-Item -Force (Join-Path $root 'resources\JamTabaYUP.ico') $folderIcon
+    attrib +s $folderIcon
+}
+
 Copy-Item (Join-Path $build 'Release\jamtaba_clap_plugin.clap') (Join-Path $stage 'JamTabaYUP.clap')
 Copy-Item (Join-Path $build 'Release\JamTabaYUP.exe') (Join-Path $stage 'JamTabaYUP.exe')
 

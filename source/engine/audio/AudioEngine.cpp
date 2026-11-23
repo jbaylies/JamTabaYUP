@@ -10,6 +10,8 @@
 
 #include "engine/audio/AudioEngine.h"
 
+#include <yup_audio_basics/yup_audio_basics.h>
+
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -103,6 +105,10 @@ void AudioEngine::applyTempo (int newBpm, int newBpi) noexcept
 void AudioEngine::process (const float* const* inputs, int numInputs,
                            float* const* outputs, int numOutputs, int numFrames) noexcept
 {
+    // Decaying meters, clicks and quiet remote audio reach denormal range,
+    // which is slow on x86. Flush them to zero for the whole callback.
+    const yup::ScopedNoDenormals noDenormals;
+
     int done = 0;
     while (done < numFrames)
     {

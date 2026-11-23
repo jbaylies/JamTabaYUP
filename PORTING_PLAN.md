@@ -288,3 +288,42 @@ Qt-free replacement listed.
 
 4. **Polish and docs**: release scripts, pluginval / clap-validator
    / auval checks, MkDocs manual deployed to `gh-pages` with `mkdocs gh-deploy`.
+
+   **Phase 4 results (2026-11-23):**
+
+   | check | macOS | Windows |
+   |---|---|---|
+   | release build (`scripts/package_release.*`) | universal, macOS 11+, ad hoc signed; signatures verify, also after unzipping | x64, static CRT: no VC++ runtime DLLs needed |
+   | AU: `auval -v aufx JmTb Sous` | AU VALIDATION SUCCEEDED | — |
+   | VST3 SDK `validator` | 47 passed, 0 failed | 47 passed, 0 failed |
+   | CLAP: clap-validator 0.4.1 (run by the user) | 44 tests: 30 passed, 3 failed, 11 skipped | 44 tests: 28 passed, 3 failed, 1 warning, 12 skipped |
+   | app icon | ours (`resources/JamTabaYUP.icns`) | ours (embedded in the exe) |
+   | zips (`scripts/make_release_zips.sh`) | `JamTabaYUP-0.1.0-macOS.zip`, 37 MB | `JamTabaYUP-0.1.0-Windows-x64.zip`, 16 MB |
+
+   - **Manual:** https://jbaylies.github.io/JamTabaYUP/, written fresh (not
+     copied from the JamTaba wiki), with screenshots of JamTabaYUP in which
+     public users' names are removed. It covers the removed looper and the
+     other dropped features in *Differences from JamTaba 2*.
+   - **CLAP validation:** the same three tests fail on both platforms, all
+     in YUP's CLAP wrapper (YUP_ISSUES.md entries 2 and 3):
+     `process-audio-basic-in-place` ("Output port 0 has an in-place pair (0),
+     but the corresponding input port does not exist"), and `param-set-events`
+     and `param-set-no-cookies` (after `clap_plugin_params::flush()` the
+     values didn't change; the only parameter is the wrapper's synthetic
+     bypass, since JamTabaYUP defines none). Windows also warned on
+     `process-audio-denormals` (6.69x slower with denormals), so
+     `AudioEngine::process` now flushes denormals to zero; a re-run will show
+     whether the warning is gone. Everything else passed: out-of-place
+     processing, varying and random block sizes and sample rates,
+     reset/reactivate, parameter fuzzing, state reproducibility, transport
+     fuzzing. Scan time was 6 ms on the Mac and 12 ms on Windows.
+   - **YUP findings** are listed in `YUP_ISSUES.md` for the user to pass to the
+     YUP developer (no PRs to YUP). JamTabaYUP keeps its workarounds local:
+     the standalone icon swap in CMake (entry 4), its own Info.plist (entry
+     6), the centred text field (entry 8) and the VST3 folder icon in the
+     packaging script (entry 10).
+   - **Not done:** nothing is published as a GitHub release yet. The 0.1.0
+     zips predate the flush-to-zero change and the VST3 folder icon fix.
+     ASIO on Windows (YUP has it, off by default; it needs Steinberg's ASIO
+     SDK). Clicking through the UI and the plugins inside a DAW are still
+     untested.
