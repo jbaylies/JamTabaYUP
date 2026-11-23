@@ -4,10 +4,13 @@ A NINJAM client for playing online jam sessions, as a standalone app and as VST3
 AU and CLAP plugins, for macOS (universal: Apple Silicon and Intel) and Windows
 (x64). Built with [YUP](https://github.com/kunitoki/yup), with a GPU-rendered UI.
 
-**Status: Phase 3 (UI).** Browse the public rooms, join one, and jam: the
-app and plugins play the other musicians, send your input, show meters, the
-beat and chord progressions, chat, and let you vote on BPM/BPI. Packaging and
-the manual come next. See [PORTING_PLAN.md](../PORTING_PLAN.md).
+Browse the public rooms, join one, and jam: the app and plugins play the
+other musicians, send your input, show meters, the beat and chord
+progressions, chat, and let you vote on BPM/BPI.
+
+**[Read the manual](https://jbaylies.github.io/JamTabaYUP/)** for installing
+and using it. The design and the state of each part are in
+[PORTING_PLAN.md](../PORTING_PLAN.md).
 
 ## Credits
 
@@ -25,6 +28,13 @@ the manual come next. See [PORTING_PLAN.md](../PORTING_PLAN.md).
 
 Left out on purpose: the looper, the built-in VST/AU host, video, jam recording,
 the private server, MIDI sync and translations. See the plan for the full list.
+
+## Download
+
+Builds for macOS (universal, macOS 11+) and Windows (x64) will be on the
+[releases page](https://github.com/jbaylies/JamTabaYUP/releases), with install
+steps in each zip. They aren't code-signed: see
+[Installing](https://jbaylies.github.io/JamTabaYUP/installing/).
 
 ## Building
 
@@ -67,6 +77,11 @@ build/ninjam_cli connect localhost:20490 --name bob --no-transmit --seconds 25 -
 
 To open the standalone app straight into a room, for scripted testing, set
 `JAMTABA_CONNECT=host:port` (and optionally `JAMTABA_NAME`) before launching it.
+
+To package a release, run `scripts/package_release.sh` on macOS and
+`scripts/package_release.ps1` on Windows, copy the Windows
+`build-release/stage` folder to `build-release/win-stage` on the Mac, then run
+`scripts/make_release_zips.sh`.
 
 Run `ninjam_cli` without arguments for the other options (chat, votes, WAV
 capture). Public servers show a licence agreement first; `ninjam_cli` declines
