@@ -78,6 +78,25 @@ Cloned outside the repository, in `../JamTabaYUP-refs/`:
 | macOS 15.8 (Apple M4) | CMake 4.4.4, Xcode 26.2, Apple clang 17, Unix Makefiles |
 | `Sousastep-Windows.local` | CMake 4.4.4, Git 2.54, VS 2022 Build Tools (MSVC 14.44), generator `Visual Studio 17 2022`; checkout at `C:\Users\jbayl\Music\JamTabaYUP`, next to philotaxis |
 
+### Phase 1 results (2026-11-23)
+
+| check | macOS | Windows |
+|---|---|---|
+| configure + build, all formats | universal arm64 + x86_64: `.app`, `.vst3`, `.component`, `.clap` | x64: `.exe`, `.vst3`, `.clap`; 0 errors, no warnings from our sources |
+| `ninjam_cli --check` (Vorbis round trip, HTTPS server list, NINJAM auth challenge from ninbot.com:2049) | passed | passed |
+| standalone launches | stays up, `NSMicrophoneUsageDescription` in Info.plist | not run interactively |
+| VST3 SDK `validator` | Phase 4 | 47 passed, 0 failed |
+
+Findings that shape Phase 2:
+
+- The server list is fetched over **HTTPS** (`https://ninbot.com/app/servers.php`).
+  Plain HTTP would be blocked by App Transport Security inside macOS DAW hosts,
+  whose Info.plist we don't control.
+- Some list entries carry `"user_max": "NaN"`; parse defensively.
+- ninbot.com advertises a 120 s keepalive and a licence agreement, so the client
+  must handle the licence prompt before auth.
+- Thirdparty YUP modules are named bare (`libvorbis`), not `yup::libvorbis`.
+
 ## Source layout
 
 ```
