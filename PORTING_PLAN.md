@@ -329,3 +329,30 @@ Qt-free replacement listed.
      ASIO on Windows (YUP has it, off by default; it needs Steinberg's ASIO
      SDK). Clicking through the UI and the plugins inside a DAW are still
      untested.
+
+## Before the first release (2026-11-23)
+
+- **Musicians on a globe.** JamTaba showed where each room's users are on a
+  flat world map. JamTabaYUP shows them on a rotating 3D globe beside the
+  room list: Natural Earth's 1:110m land (public domain, embedded by
+  `tools/world/make_world_data.py`) on an orthographic projection, eased
+  toward the room under the mouse, draggable. Each located musician gets a pin
+  and a line to their name and country. The coordinates are the coarse ones
+  the ninbot list already publishes (`lat`, `lon`); JamTabaYUP never sees
+  or looks up IP addresses. Verified on macOS with fictional data
+  (`tools/test-server/servers-sample.json`, via `JAMTABA_SERVER_LIST`);
+  builds and self-tests pass on Windows. Not verified by hand: hovering
+  rooms to retarget the globe, dragging it, and the Windows rendering.
+- **Crash fixes found while building it.**
+  - YUP records drawing and renders it at the end of the frame, so a `Path`
+    must not be changed after it is drawn. The globe reused one `Path` for
+    every continent, which crashed inside Rive.
+  - YUP calls `paint()` and `refreshDisplay()` on its render thread, and
+    timers and mouse events on the message thread, with no synchronisation
+    between them. The UI now reads an immutable published copy of the
+    session model (`JamProcessor::uiModel()`), does all per-frame work in
+    `JamEditor::refreshDisplay()` under a UI lock, and makes message-thread
+    changes through `ui::runUiLocked()`, which holds the graphics context
+    lock as well. Component tree traversal in YUP's `refreshDisplay` pass
+    is still unsynchronised with message-thread changes (YUP_ISSUES.md).
+

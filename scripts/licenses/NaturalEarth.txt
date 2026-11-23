@@ -1,0 +1,5 @@
+Natural Earth (https://www.naturalearthdata.com)
+
+The globe's land outlines come from Natural Earth's 1:110m land polygons.
+Natural Earth data is in the public domain; no permission is needed to use
+it. Terms of use: https://www.naturalearthdata.com/about/terms-of-use/

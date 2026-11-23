@@ -44,6 +44,15 @@ two minutes.
 See [Installing](installing.md#macos): the builds aren't notarized, so macOS
 blocks them until you clear the quarantine flag or click Open Anyway.
 
+## Where does the globe get people's locations? Can others see mine?
+
+From the public server list at ninbot.com, which estimates each connected
+musician's rough location from their internet address and publishes it with
+the room. JamTabaYUP only shows what the list already publishes; it doesn't
+look up anyone's address itself. Anyone using a client that reads the list,
+JamTabaYUP or JamTaba, can see the rough location of people in public rooms,
+yours included. Private servers that aren't on the list don't appear.
+
 ## Can I record the jam?
 
 Record the plugin's output in your DAW. JamTabaYUP doesn't record by itself.

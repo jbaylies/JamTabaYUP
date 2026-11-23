@@ -19,7 +19,9 @@ version 2 or (at your option) any later version.
 - **libogg and libvorbis**, by the Xiph.Org Foundation (BSD), for the audio
   NINJAM sends.
 - **[ninbot.com](https://ninbot.com)**, whose server list powers the room
-  browser.
+  browser and the globe.
+- **[Natural Earth](https://www.naturalearthdata.com)** (public domain), for
+  the land outlines on the globe.
 
 Each release zip includes `THIRD_PARTY_LICENSES.txt` with the full license of
 every library built into JamTabaYUP.

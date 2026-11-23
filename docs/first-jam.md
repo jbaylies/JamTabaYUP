@@ -20,6 +20,19 @@ every 30 seconds, busiest first. Each card shows:
 
 Click a card, or its **Join** button, to go in.
 
+### Who's there, on the globe
+
+When the window is wide enough, a globe next to the list shows where the
+musicians in a room are. Point at a room to turn the globe toward its
+musicians: each gets a pin and a line out to their name and country. The globe
+turns by itself; drag it to spin it by hand.
+
+![Musicians on the globe](images/browser-globe.png)
+
+The locations come from the public server list, which estimates each
+musician's area from their internet address; they're coarse, usually a city
+or region. Rooms whose list has no locations show none.
+
 A room with nobody but its bot is a good place to try things out alone. A busy
 room is a good place to listen first: turn your XMIT off (see
 [your channel](your-channel.md)) until you're ready to play along.
