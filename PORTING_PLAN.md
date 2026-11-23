@@ -251,5 +251,35 @@ Qt-free replacement listed.
    and accepting it is the user's call), voice-chat and session-mode channels
    (received but not played), settings persistence and chord parsing (they
    belong with the UI in Phase 3).
+   **Phase 3 results (2026-11-23):**
+
+   - **Processor:** owns the engine, a `SessionModel` fed from a 30 Hz timer,
+     a background `ServerListService`, and settings saved in the host project
+     or the standalone state: name, last server, channel, input, faders and the
+     remote mix per user.
+   - **UI:** server browser (live list, seat dots, one-click Join, host:port +
+     password form). Jam room: tempo controls with voting, beat bar with chord
+     progressions, local strip (input choice in the standalone, XMIT, MON, M/S,
+     fader, pan, meter), one group of strips per remote user (RX, M/S, fader,
+     pan, meter, interval-received flash), chat and a licence prompt.
+   - **macOS:** standalone checked against a local `ninjamsrv` with two tone
+     bots: strips, meters, chords, chat and the licence prompt render
+     correctly (screenshots). The microphone prompt shows our usage text.
+   - **Engine fix found in this phase:** the engine sent keepalives while the
+     licence was on screen, and the reference server drops a connection on any
+     message before login. Keepalives now start after login.
+   - **Audio thread:** scanned the whole `process()` path; it touches only
+     atomics, preallocated buffers and SPSC queues.
+   - **Windows:** all targets build with 0 warnings, the VST3 validator passes
+     47/47, and selftest passes. The standalone can't start over SSH: in a
+     non-interactive session Direct3D refuses the swap chain ("resource not
+     available ... may become available later") and YUP aborts. philotaxis
+     does the same, so it is the environment, not this app.
+   - **Not verified yet:** clicking through the UI (votes, dragging faders,
+     accepting a licence in the window), small window sizes, the Windows
+     standalone on a real desktop, and the plugins inside a DAW.
+   - **Known gaps:** one local channel; the standalone exposes two inputs.
+     Rooms whose list has no user names count their bot as a user.
+
 4. **Polish and docs**: release scripts, pluginval / clap-validator
    / auval checks, MkDocs manual deployed to `gh-pages` with `mkdocs gh-deploy`.

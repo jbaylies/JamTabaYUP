@@ -4,10 +4,10 @@ A NINJAM client for playing online jam sessions, as a standalone app and as VST3
 AU and CLAP plugins, for macOS (universal: Apple Silicon and Intel) and Windows
 (x64). Built with [YUP](https://github.com/kunitoki/yup), with a GPU-rendered UI.
 
-**Status: Phase 2 (headless engine).** The NINJAM engine works without a GUI:
-it connects, follows BPM/BPI, receives and plays other musicians' intervals,
-sends ours, chats and votes. The plugin and app still open an empty window; the
-UI comes next. See [PORTING_PLAN.md](../PORTING_PLAN.md).
+**Status: Phase 3 (UI).** Browse the public rooms, join one, and jam: the
+app and plugins play the other musicians, send your input, show meters, the
+beat and chord progressions, chat, and let you vote on BPM/BPI. Packaging and
+the manual come next. See [PORTING_PLAN.md](../PORTING_PLAN.md).
 
 ## Credits
 
@@ -64,6 +64,9 @@ and connect two clients: one sends a tone, the other checks it hears it.
 build/ninjam_cli connect localhost:20490 --name alice --tone 440 --seconds 30
 build/ninjam_cli connect localhost:20490 --name bob --no-transmit --seconds 25 --expect-tone 440
 ```
+
+To open the standalone app straight into a room, for scripted testing, set
+`JAMTABA_CONNECT=host:port` (and optionally `JAMTABA_NAME`) before launching it.
 
 Run `ninjam_cli` without arguments for the other options (chat, votes, WAV
 capture). Public servers show a licence agreement first; `ninjam_cli` declines
