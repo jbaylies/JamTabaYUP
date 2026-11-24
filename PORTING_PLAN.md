@@ -343,12 +343,21 @@ Qt-free replacement listed.
   (`tools/test-server/servers-sample.json`, via `JAMTABA_SERVER_LIST`);
   builds and self-tests pass on Windows, and the Windows standalone renders
   and turns the globe on the real desktop (captured from the logged-in
-  session). Not verified by hand: hovering rooms to retarget the globe, and
-  dragging it.
-- **Zips rebuilt** from `60a0fec` with the globe: signatures verify after
-  unzipping, auval passes, the VST3 validator passes 47/47 on both platforms,
-  and THIRD_PARTY_LICENSES.txt includes Natural Earth (macOS 37 MB, Windows
-  16 MB). Still not published as a GitHub release.
+  session). The user has dragged it in Ableton Live on macOS.
+- **Land filling the whole globe when dragged.** Hidden points of each land
+  ring were pulled onto the rim one by one, which closes a ring around the
+  sea instead of the land whenever the point straight behind the globe is
+  inside it (Antarctica tilted south, Afro-Eurasia seen from the Pacific).
+  Rings are now cut at the horizon and followed round the rim the way the
+  hidden part winds, and a ring around the far point gets a reversed rim
+  circle. Checked with a simulation against the true land coverage (the old
+  code failed 52 of 216 views; the new one none, nor 150 random views) and
+  in the app at three views that used to fail.
+- **Released: [v0.1.0](https://github.com/jbaylies/JamTabaYUP/releases/tag/v0.1.0)**,
+  built locally from `d8d1df2`: signatures verify after unzipping, auval
+  passes, the VST3 validator passes 47/47 on both platforms, and
+  THIRD_PARTY_LICENSES.txt includes Natural Earth (macOS 37 MB, Windows
+  16 MB).
 - **Crash fixes found while building it.**
   - YUP records drawing and renders it at the end of the frame, so a `Path`
     must not be changed after it is drawn. The globe reused one `Path` for

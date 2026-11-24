@@ -32,7 +32,7 @@ the private server, MIDI sync and translations. See the plan for the full list.
 
 ## Download
 
-Builds for macOS (universal, macOS 11+) and Windows (x64) will be on the
+Builds for macOS (universal, macOS 11+) and Windows (x64) are on the
 [releases page](https://github.com/jbaylies/JamTabaYUP/releases), with install
 steps in each zip. They aren't code-signed: see
 [Installing](https://jbaylies.github.io/JamTabaYUP/installing/).
