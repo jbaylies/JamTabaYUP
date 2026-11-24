@@ -341,8 +341,14 @@ Qt-free replacement listed.
   the ninbot list already publishes (`lat`, `lon`); JamTabaYUP never sees
   or looks up IP addresses. Verified on macOS with fictional data
   (`tools/test-server/servers-sample.json`, via `JAMTABA_SERVER_LIST`);
-  builds and self-tests pass on Windows. Not verified by hand: hovering
-  rooms to retarget the globe, dragging it, and the Windows rendering.
+  builds and self-tests pass on Windows, and the Windows standalone renders
+  and turns the globe on the real desktop (captured from the logged-in
+  session). Not verified by hand: hovering rooms to retarget the globe, and
+  dragging it.
+- **Zips rebuilt** from `60a0fec` with the globe: signatures verify after
+  unzipping, auval passes, the VST3 validator passes 47/47 on both platforms,
+  and THIRD_PARTY_LICENSES.txt includes Natural Earth (macOS 37 MB, Windows
+  16 MB). Still not published as a GitHub release.
 - **Crash fixes found while building it.**
   - YUP records drawing and renders it at the end of the frame, so a `Path`
     must not be changed after it is drawn. The globe reused one `Path` for
