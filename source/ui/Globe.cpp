@@ -38,6 +38,23 @@ float wrap (float angle) noexcept
         angle += 360.0f;
     return angle - 180.0f;
 }
+
+/** Whether a point (in degrees) is inside a ring of the land data, tested on
+    the flat longitude/latitude map, where the rings are simple polygons. */
+bool containsPoint (const world::Ring& ring, float longitude, float latitude) noexcept
+{
+    const float px = longitude * 100.0f, py = latitude * 100.0f;
+    bool inside = false;
+    for (int i = 0, j = ring.count - 1; i < ring.count; j = i++)
+    {
+        const auto* a = world::points + 2 * (ring.start + i);
+        const auto* b = world::points + 2 * (ring.start + j);
+        const float ax = a[0], ay = a[1], bx = b[0], by = b[1];
+        if ((ay > py) != (by > py) && px < (bx - ax) * (py - ay) / (by - ay) + ax)
+            inside = ! inside;
+    }
+    return inside;
+}
 } // namespace
 
 Globe::Globe()
@@ -211,65 +228,144 @@ void Globe::paintGraticule (yup::Graphics& g, yup::Point<float> centre, float ra
 
 void Globe::paintLand (yup::Graphics& g, yup::Point<float> centre, float radius)
 {
-    // Filled land: points behind the globe are pulled onto the rim, which
-    // closes each continent along the horizon. Edges only where visible.
+    // Each ring is clipped to the visible half: where it goes behind the globe
+    // it's cut at the horizon and followed round the rim, the way the hidden
+    // part winds, to where it comes back. If the point straight behind the
+    // globe is inside the ring, that closes the ring around the sea instead of
+    // the land, so a rim circle the other way round flips it back.
     //
     // Each ring gets new Path objects: drawing is recorded and rendered at the
     // end of the frame, so a path must not change after it has been drawn.
+    constexpr float maxStep = 2.0f * degrees;    // longest straight piece of a ring
+    constexpr float rimStep = 3.0f * degrees;    // of an arc along the rim
+    const float backLatitude = -viewTilt, backLongitude = wrap (viewLongitude + 180.0f);
+
+    std::vector<yup::Point<float>> outline;
     for (const auto& ring : world::rings)
     {
-        yup::Path fill, edges;
-        bool anyVisible = false;
-        bool drawingEdge = false;
-        for (int i = 0; i < ring.count; ++i)
+        const auto at = [&] (int i)
         {
             const auto* point = world::points + 2 * (ring.start + i);
-            const auto p = project (point[1] * 0.01f, point[0] * 0.01f);
+            return project (point[1] * 0.01f, point[0] * 0.01f);
+        };
 
-            float x = p.x, y = p.y;
-            if (p.z < 0.0f)
+        int first = -1;
+        for (int i = 0; i < ring.count && first < 0; ++i)
+            if (at (i).z > 0.0f)
+                first = i;
+        if (first < 0)
+            continue; // wholly behind the globe
+
+        yup::Path edges;
+        outline.clear();
+        const auto toScreen = [&] (float x, float y) { return yup::Point<float> (centre.getX() + x * radius, centre.getY() - y * radius); };
+
+        bool hidden = false;
+        float exitAngle = 0.0f, lastAngle = 0.0f, swept = 0.0f;
+        Projected previous = at (first);
+        outline.push_back (toScreen (previous.x, previous.y));
+        edges.moveTo (outline.back());
+
+        for (int k = 1; k <= ring.count; ++k)
+        {
+            const Projected next = at ((first + k) % ring.count);
+            // Antarctica is closed along the 180th meridian and the pole: fill those, but don't outline them
+            const auto* from = world::points + 2 * (ring.start + (first + k - 1) % ring.count);
+            const auto* to = world::points + 2 * (ring.start + (first + k) % ring.count);
+            const bool seam = (std::abs (from[0]) == 18000 && std::abs (to[0]) == 18000) || (from[1] <= -8990 && to[1] <= -8990);
+            const float dot = std::clamp (previous.x * next.x + previous.y * next.y + previous.z * next.z, -1.0f, 1.0f);
+            const int pieces = std::max (1, static_cast<int> (std::ceil (std::acos (dot) / maxStep)));
+
+            Projected p = previous;
+            for (int j = 1; j <= pieces; ++j)
             {
-                const float length = std::sqrt (x * x + y * y);
-                if (length > 1.0e-6f)
+                const float f = static_cast<float> (j) / static_cast<float> (pieces);
+                const Projected q { previous.x + (next.x - previous.x) * f,
+                                    previous.y + (next.y - previous.y) * f,
+                                    previous.z + (next.z - previous.z) * f };
+
+                const auto horizon = [&]
                 {
-                    x /= length;
-                    y /= length;
+                    const float t = p.z / (p.z - q.z);
+                    return std::atan2 (p.y + (q.y - p.y) * t, p.x + (q.x - p.x) * t);
+                };
+
+                if (! hidden && q.z > 0.0f)
+                {
+                    outline.push_back (toScreen (q.x, q.y));
+                    if (seam)
+                        edges.moveTo (outline.back());
+                    else
+                        edges.lineTo (outline.back());
                 }
-            }
-            else
-            {
-                anyVisible = true;
-            }
-
-            const float sx = centre.getX() + x * radius, sy = centre.getY() - y * radius;
-            if (i == 0)
-                fill.moveTo (sx, sy);
-            else
-                fill.lineTo (sx, sy);
-
-            if (p.z > 0.0f)
-            {
-                if (drawingEdge)
-                    edges.lineTo (sx, sy);
+                else if (! hidden)
+                {
+                    exitAngle = lastAngle = horizon();
+                    swept = 0.0f;
+                    hidden = true;
+                    outline.push_back (toScreen (std::cos (exitAngle), std::sin (exitAngle)));
+                    edges.lineTo (outline.back());
+                }
+                else if (q.z <= 0.0f)
+                {
+                    const float angle = std::atan2 (q.y, q.x);
+                    swept += std::remainder (angle - lastAngle, 2.0f * std::numbers::pi_v<float>);
+                    lastAngle = angle;
+                }
                 else
-                    edges.moveTo (sx, sy);
-                drawingEdge = true;
+                {
+                    const float angle = horizon();
+                    swept += std::remainder (angle - lastAngle, 2.0f * std::numbers::pi_v<float>);
+                    const int steps = std::max (1, static_cast<int> (std::ceil (std::abs (swept) / rimStep)));
+                    for (int s = 1; s <= steps; ++s)
+                    {
+                        const float a = exitAngle + swept * static_cast<float> (s) / static_cast<float> (steps);
+                        outline.push_back (toScreen (std::cos (a), std::sin (a)));
+                    }
+                    edges.moveTo (outline.back());
+                    outline.push_back (toScreen (q.x, q.y));
+                    edges.lineTo (outline.back());
+                    hidden = false;
+                }
+                p = q;
             }
-            else
-            {
-                drawingEdge = false;
-            }
+            previous = next;
         }
+
+        yup::Path fill;
+        fill.moveTo (outline.front());
+        for (size_t i = 1; i < outline.size(); ++i)
+            fill.lineTo (outline[i]);
         fill.close();
 
-        if (anyVisible) // rings wholly behind the globe aren't drawn
+        if (containsPoint (ring, backLongitude, backLatitude))
         {
-            g.setFillColor (land);
-            g.fillPath (fill);
-            g.setStrokeColor (landEdge.withAlpha (0.7f));
-            g.setStrokeWidth (0.8f);
-            g.strokePath (edges);
+            float area = 0.0f;
+            for (size_t i = 0; i < outline.size(); ++i)
+            {
+                const auto& a = outline[i];
+                const auto& b = outline[(i + 1) % outline.size()];
+                area += a.getX() * b.getY() - b.getX() * a.getY();
+            }
+            const float direction = area > 0.0f ? -1.0f : 1.0f;
+            constexpr int rimPoints = 120;
+            for (int s = 0; s <= rimPoints; ++s)
+            {
+                const float a = direction * 2.0f * std::numbers::pi_v<float> * static_cast<float> (s) / rimPoints;
+                const yup::Point<float> point (centre.getX() + std::cos (a) * radius, centre.getY() + std::sin (a) * radius);
+                if (s == 0)
+                    fill.moveTo (point);
+                else
+                    fill.lineTo (point);
+            }
+            fill.close();
         }
+
+        g.setFillColor (land);
+        g.fillPath (fill);
+        g.setStrokeColor (landEdge.withAlpha (0.7f));
+        g.setStrokeWidth (0.8f);
+        g.strokePath (edges);
     }
 }
 
