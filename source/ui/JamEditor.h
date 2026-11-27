@@ -37,7 +37,7 @@ public:
 
     void resized() override;
     void paint (yup::Graphics& g) override;
-    void refreshDisplay (double lastFrameTimeSeconds) override;
+    void refreshDisplay (double lastFrameTimeSeconds);
 
 private:
     void timerCallback() override;
@@ -47,6 +47,10 @@ private:
     std::unique_ptr<ui::ServerBrowser> browser;
     std::unique_ptr<ui::JamRoom> room;
     std::uint32_t seenLayout = 0;
+
+    // Calls refreshDisplay() on every frame of the window this is in. Last, so
+    // it stops before any of the members above are destroyed.
+    yup::FrameAttachment frameAttachment { *this, yup::bindFront (&JamEditor::refreshDisplay, this) };
 
     YUP_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (JamEditor)
 };
