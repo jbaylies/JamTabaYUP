@@ -24,9 +24,9 @@ cmake --build "$build" --config Release -j
 
 rm -rf "$stage"
 mkdir -p "$stage"
-ditto "$build/jamtaba_au_plugin.component" "$stage/JamTabaYUP.component"
-ditto "$build/VST3/Release/jamtaba_vst3_plugin.vst3" "$stage/JamTabaYUP.vst3"
-ditto "$build/jamtaba_clap_plugin.clap" "$stage/JamTabaYUP.clap"
+ditto "$build/AU/JamTabaYUP.component" "$stage/JamTabaYUP.component"
+ditto "$build/VST3/Release/JamTabaYUP.vst3" "$stage/JamTabaYUP.vst3"
+ditto "$build/CLAP/JamTabaYUP.clap" "$stage/JamTabaYUP.clap"
 ditto "$build/JamTabaYUP.app" "$stage/JamTabaYUP.app"
 
 # YUP's bundles carry signatures that no longer match their contents
