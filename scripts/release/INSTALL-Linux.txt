@@ -1,0 +1,52 @@
+JamTabaYUP @VERSION@ for Linux
+==============================
+
+A NINJAM client: jam online with musicians around the world. Standalone app
+plus VST3 and CLAP plugins. Built on Ubuntu 22.04: runs on Linux with glibc
+2.35 or later (Ubuntu 22.04, Debian 12, Fedora 36 and newer). Use the x86_64
+download on a PC and the aarch64 one on 64-bit ARM, such as a Raspberry Pi 4
+or 5.
+
+Manual: https://jbaylies.github.io/JamTabaYUP/
+Source: https://github.com/jbaylies/JamTabaYUP
+
+
+Install
+-------
+
+The app goes anywhere, such as ~/.local/bin. For the plugins, copy each into
+its folder. Create the folder if it doesn't exist.
+
+  JamTabaYUP        anywhere, such as ~/.local/bin
+  JamTabaYUP.vst3   ~/.vst3   (Bitwig, Reaper, Ardour)
+  JamTabaYUP.clap   ~/.clap   (Bitwig, Reaper)
+
+JamTabaYUP.vst3 is a folder: copy the whole folder. For every user on the
+machine, use /usr/lib/vst3 and /usr/lib/clap instead.
+
+From a terminal, in the unpacked folder:
+
+  mkdir -p ~/.vst3 ~/.clap
+  cp -r JamTabaYUP.vst3 ~/.vst3/
+  cp JamTabaYUP.clap ~/.clap/
+
+Then rescan plugins in your DAW.
+
+The plugins and the app need an X11 or XWayland desktop with OpenGL. The app
+plays through ALSA or JACK (PipeWire's JACK and ALSA support work too): choose
+your audio interface with the Settings button at the top of the window.
+
+
+Using the plugin
+----------------
+
+Insert it as an effect on the track you play into. JamTabaYUP sends that
+track's audio to the jam and plays the other musicians on the same track. Your
+DAW already monitors the track, so JamTabaYUP's own monitoring starts off.
+
+
+Licenses
+--------
+
+LICENSE: JamTabaYUP is free software under the GNU GPL, version 2 or later.
+THIRD_PARTY_LICENSES.txt: the libraries built into it.

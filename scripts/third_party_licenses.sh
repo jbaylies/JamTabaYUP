@@ -2,7 +2,7 @@
 # Writes the licenses of everything built into the plugin binaries, for the
 # release zips. Needs a configured build folder, for the libraries YUP fetches.
 #
-#   scripts/third_party_licenses.sh <build folder> <macos|windows> <output file>
+#   scripts/third_party_licenses.sh <build folder> <macos|windows|linux> <output file>
 #
 # The list follows what the plugin links: YUP's modules from yup_gui and
 # yup_audio_processors down, their third-party modules, SDL3, the plugin SDKs
@@ -26,6 +26,9 @@ section() # name, license name, file...
     printf '%s (%s)\n' "$name" "$license" >> "$out"
     printf '================================================================================\n\n' >> "$out"
     for file in "$@"; do
+        # YUP fetches some modules' sources next to the build folder rather
+        # than into it, which is where they land for the Linux builds
+        case "$file" in "$ext"/*) [ -f "$file" ] || file="$build/../externals/${file#"$ext"/}" ;; esac
         [ -f "$file" ] || { echo "missing license file: $file" >&2; exit 1; }
         cat "$file" >> "$out"
         printf '\n' >> "$out"
